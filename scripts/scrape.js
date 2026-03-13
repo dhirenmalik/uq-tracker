@@ -295,8 +295,10 @@ async function main() {
         const DATA_FILE = path.join(__dirname, '..', 'data.js');
         let content = fs.readFileSync(DATA_FILE, 'utf8');
 
+        const filteredCourses = seCourses.filter(c => c.units <= 4);
+
         content = updateRequirementsJs('se_ai', seReqs, content);
-        content = updateDataJs('se_ai', seCourses, content);
+        content = updateDataJs('se_ai', filteredCourses, content);
 
         fs.writeFileSync(DATA_FILE, content);
         console.log('Successfully updated data.js!');
