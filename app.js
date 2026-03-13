@@ -1,37 +1,42 @@
-document.addEventListener('DOMContentLoaded', () => {
-    initApp();
-});
+let currentDegreeId = localStorage.getItem('uq_tracker_degree') || 'se_ai';
+let COURSES = DEGREES[currentDegreeId].courses;
+let REQUIREMENTS = DEGREES[currentDegreeId].requirements;
+let SEMESTERS = DEGREES[currentDegreeId].semesters;
 
 let state = {
-    courses: [...COURSES],     // Master list
-    placements: {},            // code -> semester id
+    courses: [...COURSES],
+    placements: {},
     activeFilter: 'All',
     searchQuery: '',
     loadingSemesters: true
 };
 
-async function initApp() {
-    loadState();
+document.addEventListener('DOMContentLoaded', () => {
+    initApp();
+});
 
-    // Draw UI immediately
+async function initApp() {
+    const degreeSelect = document.getElementById('degreeSelect');
+    if (degreeSelect) {
+        degreeSelect.value = currentDegreeId;
+        degreeSelect.addEventListener('change', e => {
+            if (confirm("Changing degree will switch your plan. Continue?")) {
+                changeDegree(e.target.value);
+            } else {
+                e.target.value = currentDegreeId;
+            }
+        });
+    }
+
+    loadState();
+    renderFilters();
     renderSemesters();
     renderCatalog();
     updateProgress();
 
-    // Setup Event Listeners
     document.getElementById('courseSearch').addEventListener('input', e => {
         state.searchQuery = e.target.value.toLowerCase();
         renderCatalog();
-    });
-
-    const filterBtns = document.querySelectorAll('.filter-pill');
-    filterBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            filterBtns.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            state.activeFilter = btn.dataset.cat;
-            renderCatalog();
-        });
     });
 
     document.getElementById('resetBtn').addEventListener('click', () => {
@@ -44,15 +49,58 @@ async function initApp() {
         }
     });
 
-    // Global drop zone events for unassigned list
     const unassignedList = document.getElementById('unassignedList');
     unassignedList.addEventListener('dragover', handleDragOver);
     unassignedList.addEventListener('drop', handleDrop);
     unassignedList.addEventListener('dragenter', handleDragEnter);
     unassignedList.addEventListener('dragleave', handleDragLeave);
 
-    // Fetch availability asynchronously
     await fetchSemestersForAll();
+}
+
+function changeDegree(newDegreeId) {
+    localStorage.setItem('uq_tracker_degree', newDegreeId);
+    currentDegreeId = newDegreeId;
+    COURSES = DEGREES[currentDegreeId].courses;
+    REQUIREMENTS = DEGREES[currentDegreeId].requirements;
+    SEMESTERS = DEGREES[currentDegreeId].semesters;
+    
+    state.courses = [...COURSES];
+    state.placements = {};
+    state.activeFilter = 'All';
+    state.searchQuery = '';
+    state.loadingSemesters = true;
+    
+    loadState();
+    renderFilters();
+    renderSemesters();
+    renderCatalog();
+    updateProgress();
+    fetchSemestersForAll();
+}
+
+function renderFilters() {
+    const container = document.getElementById('catFilters');
+    container.innerHTML = '<button class="filter-pill active" data-cat="All">All</button>';
+    
+    const cats = [...new Set(state.courses.map(c => c.cat))];
+    cats.forEach(cat => {
+        const btn = document.createElement('button');
+        btn.className = 'filter-pill';
+        btn.dataset.cat = cat;
+        btn.innerText = cat;
+        container.appendChild(btn);
+    });
+
+    const filterBtns = document.querySelectorAll('.filter-pill');
+    filterBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            filterBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            state.activeFilter = btn.dataset.cat;
+            renderCatalog();
+        });
+    });
 }
 
 async function fetchSemestersForAll() {
@@ -60,7 +108,6 @@ async function fetchSemestersForAll() {
         try {
             const formBody = `search-term=${course.code}&semester=ALL&campus=ALL&faculty=ALL&type=ALL&days=1&days=2&days=3&days=4&days=5&days=6&days=0&start-time=00%3A00&end-time=23%3A00`;
 
-            // Helper function to fetch for a specific year
             const fetchForYear = async (year) => {
                 const response = await fetch('https://lingering-bush-c27d.late-night.workers.dev/?/subjects', {
                     method: 'POST',
@@ -76,7 +123,7 @@ async function fetchSemestersForAll() {
 
                 Object.keys(data).forEach(key => {
                     if (key.toUpperCase().startsWith(course.code)) {
-                        const semStr = data[key].semester; // e.g., 'S1', 'S2'
+                        const semStr = data[key].semester;
                         if (semStr === 'S1') sems.add(1);
                         if (semStr === 'S2') sems.add(2);
                         if (semStr === 'S3') sems.add(3);
@@ -85,57 +132,49 @@ async function fetchSemestersForAll() {
                 return Array.from(sems).sort();
             };
 
-            // Try current/future year first
             let semsList = await fetchForYear(2024);
 
-            // Fallback: If no semesters found in 2024, check historical data from 2023
             if (semsList.length === 0) {
-                console.log(`${course.code} not found in 2024. Falling back to 2023...`);
                 semsList = await fetchForYear(2023);
             }
 
             course.semesters = semsList;
         } catch (e) {
-            console.error(`Failed to fetch for ${course.code}`, e);
-            course.semesters = [1, 2]; // ultimate fallback
+            course.semesters = [1, 2];
         }
     });
 
     await Promise.all(promises);
     state.loadingSemesters = false;
 
-    // Re-render once we have constraints
     renderCatalog();
     renderSemesters();
 }
 
 function loadState() {
-    const saved = localStorage.getItem('uq_tracker_state');
+    const saved = localStorage.getItem(`uq_tracker_state_${currentDegreeId}`);
     if (saved) {
         try {
             state.placements = JSON.parse(saved);
         } catch (e) {
-            console.error('Failed to parse state', e);
-
         }
+    } else {
+        state.placements = {};
     }
 }
 
 function saveState() {
-    localStorage.setItem('uq_tracker_state', JSON.stringify(state.placements));
+    localStorage.setItem(`uq_tracker_state_${currentDegreeId}`, JSON.stringify(state.placements));
 }
-
-// ---------------- UI Rendering ----------------
 
 function renderSemesters() {
     const grid = document.getElementById('semestersGrid');
-    grid.innerHTML = ''; // clear
+    grid.innerHTML = '';
 
     SEMESTERS.forEach(sem => {
         const box = document.createElement('div');
         box.className = 'semester-box';
 
-        // Sem header
         const header = document.createElement('div');
         header.className = 'semester-header';
         header.innerHTML = `
@@ -143,7 +182,6 @@ function renderSemesters() {
       <div class="semester-units" id="units-${sem.id}">0 / 8 units</div>
     `;
 
-        // Dropzone
         const dropzone = document.createElement('div');
         dropzone.className = 'semester-dropzone';
         dropzone.id = sem.id;
@@ -154,7 +192,6 @@ function renderSemesters() {
         dropzone.addEventListener('dragenter', handleDragEnter);
         dropzone.addEventListener('dragleave', handleDragLeave);
 
-        // Get all courses placed in this semester (either normally or as a ghost)
         const placedCodes = Object.keys(state.placements).filter(code => {
             const placement = state.placements[code];
             if (Array.isArray(placement)) {
@@ -168,17 +205,14 @@ function renderSemesters() {
         placedCodes.forEach(code => {
             const cInfo = getCourseInfo(code);
             if (cInfo) {
-                // If year long, it's 2 units per semester
                 const semUnits = cInfo.isYearLong ? (cInfo.units / 2) : cInfo.units;
                 units += semUnits;
 
                 const card = createCourseCard(cInfo);
 
-                // If it's a yearlong course and this is the second semester it appears in, mark it
                 if (cInfo.isYearLong && Array.isArray(state.placements[code])) {
                     if (state.placements[code][1] === sem.id) {
                         card.querySelector('.course-name').innerHTML += ' <span style="color: var(--accent-color); font-weight: bold;">(Part 2)</span>';
-                        // Keep Part 2 as non-draggable to force moving only the parent
                         card.draggable = false;
                         card.style.opacity = '0.7';
                         card.style.cursor = 'default';
@@ -187,7 +221,6 @@ function renderSemesters() {
                     }
                 }
 
-                // Set the displayed units on the card to the split unit amount
                 card.querySelector('.course-units').innerText = `${semUnits} U`;
 
                 dropzone.appendChild(card);
@@ -195,7 +228,7 @@ function renderSemesters() {
         });
 
         header.querySelector('.semester-units').innerText = `${units} / 8 units`;
-        if (units > 8) header.querySelector('.semester-units').style.color = '#ef4444'; // Red if overloaded
+        if (units > 8) header.querySelector('.semester-units').style.color = '#ef4444';
 
         box.appendChild(header);
         box.appendChild(dropzone);
@@ -208,10 +241,8 @@ function renderCatalog() {
     unassignedList.innerHTML = '';
 
     state.courses.forEach(c => {
-        // skip if placed
         if (state.placements[c.code] && state.placements[c.code] !== 'unassigned') return;
 
-        // Filter rules
         const matchCat = state.activeFilter === 'All' || c.cat === state.activeFilter;
         const matchSearch = c.code.toLowerCase().includes(state.searchQuery) || c.name.toLowerCase().includes(state.searchQuery);
 
@@ -225,7 +256,6 @@ function updateProgress() {
     const dashboard = document.getElementById('progressDashboard');
     dashboard.innerHTML = '';
 
-    // Calculate current planned units
     const plannedCourses = Object.keys(state.placements)
         .filter(code => state.placements[code] !== 'unassigned')
         .map(code => getCourseInfo(code))
@@ -235,9 +265,6 @@ function updateProgress() {
         const filtered = plannedCourses.filter(req.filter);
         const sum = filtered.reduce((acc, crs) => acc + crs.units, 0);
         const percentage = Math.min(100, Math.round((sum / req.target) * 100));
-
-        // For AI Minor COMP2701 substitution rule: this is a simple tracker, 
-        // user just needs to hit 8 units overall among AI categorised + COMP2701.
 
         const widget = document.createElement('div');
         widget.className = 'progress-widget';
@@ -255,8 +282,6 @@ function updateProgress() {
         dashboard.appendChild(widget);
     });
 }
-
-// ---------------- Helpers & Logic ----------------
 
 function getCourseInfo(code) {
     return state.courses.find(c => c.code === code);
@@ -300,8 +325,6 @@ function createCourseCard(c) {
     return el;
 }
 
-// ---------------- Drag and Drop ----------------
-
 let draggedCardId = null;
 
 function handleDragStart(e) {
@@ -323,7 +346,6 @@ function handleDragOver(e) {
 
 function handleDragEnter(e) {
     e.preventDefault();
-    // Don't add if it's not the main dropzone container
     if (this.classList.contains('semester-dropzone') || this.id === 'unassignedList') {
         this.classList.add('drag-over');
     }
@@ -347,16 +369,14 @@ function handleDrop(e) {
     if (targetId !== 'unassignedList') {
         const courseInfo = getCourseInfo(code);
 
-        // 1. Check Semesters
         const targetSem = SEMESTERS.find(s => s.id === targetId);
         if (courseInfo && targetSem && courseInfo.semesters) {
             if (!courseInfo.semesters.includes(targetSem.semNum)) {
                 alert(`Cannot add ${code} to ${targetSem.name}. It is only available in Semester(s): ${courseInfo.semesters.join(', ')}.`);
-                return; // Cancel drop
+                return;
             }
         }
 
-        // 2. Check Exclusivity
         if (courseInfo && courseInfo.exclusiveWith) {
             for (const excl of courseInfo.exclusiveWith) {
                 if (state.placements[excl] && state.placements[excl] !== 'unassigned') {
@@ -368,18 +388,14 @@ function handleDrop(e) {
         }
     }
 
-    // If moving back to catalog
     if (targetId === 'unassignedList') {
         state.placements[code] = 'unassigned';
     } else {
-        // If moving to a semester
         const courseInfo = getCourseInfo(code);
 
         if (courseInfo && courseInfo.isYearLong) {
-            // Find current semester index
             const currentSemIdx = SEMESTERS.findIndex(s => s.id === targetId);
 
-            // Year long course needs a subsequent semester
             if (currentSemIdx + 1 < SEMESTERS.length) {
                 const nextSemId = SEMESTERS[currentSemIdx + 1].id;
                 state.placements[code] = [targetId, nextSemId];

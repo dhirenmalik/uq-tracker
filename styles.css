@@ -65,6 +65,28 @@ body {
   letter-spacing: -0.5px;
 }
 
+.degree-select {
+  background: var(--card-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--glass-border);
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-family: 'Inter', sans-serif;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.degree-select:hover {
+  border-color: var(--text-secondary);
+}
+
+.degree-select option {
+  background: var(--bg-color);
+  color: var(--text-primary);
+}
+
 .header-main p {
   color: var(--text-secondary);
   font-size: 0.95rem;
