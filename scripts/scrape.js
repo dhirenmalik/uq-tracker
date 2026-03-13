@@ -188,19 +188,16 @@ async function main() {
         const YEAR = new Date().getFullYear();
         const urls = {
             se: `https://programs-courses.uq.edu.au/requirements/program/2455/${YEAR}`,
-            cs: `https://programs-courses.uq.edu.au/requirements/program/2451/${YEAR}`,
             ai: `https://programs-courses.uq.edu.au/requirements/plan/ARINTA2455/${YEAR}`
         };
 
         console.log('Fetching UQ data...');
-        const [htmlSE, htmlCS, htmlAI] = await Promise.all([
+        const [htmlSE, htmlAI] = await Promise.all([
             fetchUQData(urls.se),
-            fetchUQData(urls.cs),
             fetchUQData(urls.ai)
         ]);
 
         const seData = extractAppData(htmlSE);
-        const csData = extractAppData(htmlCS);
         const aiData = extractAppData(htmlAI);
 
         // -------------------------------------------------------------
@@ -245,47 +242,20 @@ async function main() {
         const beCoreUnits = getRuleParamN(corePart);
         const beGenElecUnitsMax = getRuleParamM(seBody.find(p => p.header?.title === 'General Elective Courses'));
 
+        // Sum the requirements inside the AI minor rules to get the total AI minor units (6 compulsory + 2 elective = 8)
+        let aiMinorUnits = 0;
+        aiBody.forEach(part => {
+            aiMinorUnits += getRuleParamN(part);
+        });
+
         // The overall SE minor requires 52 units, AI Minor requires 8, therefore SE rules total 44
         const seReqs = [
             { id: 'total', name: 'Total Units', target: beTotalMax, filterStr: '() => true', color: 'var(--accent-color)' },
             { id: 'core', name: 'BE Core', target: beCoreUnits, filterStr: "c => c.cat === 'Core'", color: 'var(--cat-core)' },
             { id: 'secore', name: 'SE Core', target: 34, filterStr: "c => c.cat === 'SE Core'", color: 'var(--cat-secore)' },
-            { id: 'aiminor', name: 'AI Minor', target: 8, filterStr: "c => c.cat === 'AI Minor'", color: 'var(--cat-aiminor)' },
+            { id: 'aiminor', name: 'AI Minor', target: aiMinorUnits, filterStr: "c => c.cat === 'AI Minor'", color: 'var(--cat-aiminor)' },
             { id: 'ext', name: 'SE Ext / Adv', target: 2, filterStr: "c => c.cat === 'SE Ext' || c.cat === 'SE Adv'", color: 'var(--cat-seext)' },
             { id: 'electives', name: 'Electives', target: beGenElecUnitsMax, filterStr: "c => c.cat === 'Elective'", color: 'var(--cat-elec)' },
-        ];
-
-        // -------------------------------------------------------------
-        // CS
-        // -------------------------------------------------------------
-        const csCourses = [];
-        const seenCS = new Set();
-        const csProgRules = csData.programRequirements.payload.components.find(c => c.componentIntegrationIdentifier === 'PROGRAM_RULES').payload;
-        let csBody = csProgRules.body;
-
-        traverseAndExtract(csBody[0].body || [], csCourses, seenCS, () => 'CS Core');
-
-        // Extract from "Plan Options" or "Elective Courses"
-        for (let i = 1; i < csBody.length; i++) {
-            const title = (csBody[i].header?.title || '').toLowerCase();
-            if (title.includes('plan options') || title.includes('elective')) {
-                traverseAndExtract(csBody[i].body || [], csCourses, seenCS, () => 'Elective');
-            }
-        }
-
-        csCourses.push(
-            { code: 'CS_ELEC_1', name: 'CS Elective 1', units: 2, cat: 'Elective' },
-            { code: 'CS_ELEC_2', name: 'CS Elective 2', units: 2, cat: 'Elective' }
-        );
-
-        console.log(`Extracted ${csCourses.length} CS courses.`);
-
-        const csTotalMax = csData.programRequirements.unitsMaximum || 48;
-        const csCoreUnits = getRuleParamN(csBody[0]);
-        const csReqs = [
-            { id: 'total', name: 'Total Units', target: csTotalMax, filterStr: '() => true', color: 'var(--accent-color)' },
-            { id: 'core', name: 'CS Core', target: csCoreUnits, filterStr: "c => c.cat === 'CS Core'", color: 'var(--cat-core)' },
-            { id: 'electives', name: 'Electives', target: csTotalMax - csCoreUnits, filterStr: "c => c.cat === 'Elective'", color: 'var(--cat-elec)' },
         ];
 
 
@@ -297,9 +267,6 @@ async function main() {
 
         content = updateRequirementsJs('se_ai', seReqs, content);
         content = updateDataJs('se_ai', seCourses, content);
-
-        content = updateRequirementsJs('cs', csReqs, content);
-        content = updateDataJs('cs', csCourses, content);
 
         fs.writeFileSync(DATA_FILE, content);
         console.log('Successfully updated data.js!');
