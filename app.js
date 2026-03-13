@@ -5,6 +5,11 @@ async function ensureCourseSemesters(code) {
     if (semesterCache[code]) return semesterCache[code];
 
     const year = new Date().getFullYear();
+    const sems = new Set();
+
+    // Query both current and previous year and merge results.
+    // Current year may only have S1 data published (e.g. early in the year),
+    // so we also check last year to catch S2 offerings.
     for (const y of [year, year - 1]) {
         try {
             const body = `search-term=${code}&semester=ALL&campus=ALL&faculty=ALL&type=ALL&days=1&days=2&days=3&days=4&days=5&days=6&days=0&start-time=00%3A00&end-time=23%3A00`;
@@ -18,23 +23,19 @@ async function ensureCourseSemesters(code) {
                 body
             });
             const data = await res.json();
-            const sems = new Set();
             for (const key in data) {
                 if (key.toUpperCase().startsWith(code)) {
                     if (data[key].semester === 'S1') sems.add(1);
                     if (data[key].semester === 'S2') sems.add(2);
                 }
             }
-            if (sems.size > 0) {
-                const arr = Array.from(sems).sort();
-                semesterCache[code] = arr;
-                return arr;
-            }
         } catch (e) {
         }
     }
-    semesterCache[code] = [];
-    return [];
+
+    const arr = Array.from(sems).sort();
+    semesterCache[code] = arr;
+    return arr;
 }
 
 let currentDegreeId = localStorage.getItem('uq_tracker_degree') || 'se_ai';
