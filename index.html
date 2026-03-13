@@ -13,9 +13,14 @@
         <h1>UQ Semester Tracker</h1>
         <select id="degreeSelect" class="degree-select">
           <option value="se_ai">Software Engineering (AI Minor) — BE(Hons) 2024 to 2027</option>
-          <option value="cs">Computer Science — 2024 to 2026 (Placeholder)</option>
         </select>
-        <button id="resetBtn" class="premium-btn">Reset Plan</button>
+        <div class="header-actions">
+          <button id="resetBtn" class="premium-btn" type="button">Reset Plan</button>
+          <button id="undoBtn" class="premium-btn" type="button" disabled>Undo</button>
+          <button id="redoBtn" class="premium-btn" type="button" disabled>Redo</button>
+          <button id="shareBtn" class="premium-btn" type="button">Share Plan</button>
+          <button id="themeToggleBtn" class="premium-btn" type="button">DARK</button>
+        </div>
       </div>
       <div class="progress-dashboard" id="progressDashboard">
         <!-- Progress widgets dynamically injected here -->

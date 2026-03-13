@@ -2,30 +2,6 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
-const YEAR = new Date().getFullYear();
-const URL = `https://programs-courses.uq.edu.au/requirements/program/2455/${YEAR}`;
-const DATA_FILE = path.join(__dirname, '..', 'data.js');
-
-// Map UQ section names to our internal categories
-function determineCategory(sectionPath) {
-    const s = sectionPath.toLowerCase();
-    if (s.includes('core courses')) return 'Core';
-
-    if (s.includes('software engineering') || s.includes('software engineering plan options')) {
-        if (s.includes('extension course')) return 'SE Ext';
-        if (s.includes('advanced elective')) return 'SE Adv';
-        if (s.includes('breadth elective')) return 'Elective';
-        if (s.includes('minor options')) {
-            // Need special handling for AI minor vs others, but for now we put them in sub-pools
-            // if we can't tell, we'll assign it to a general category
-        }
-        return 'SE Core';
-    }
-
-    if (s.includes('program elective') || s.includes('general elective')) return 'Elective';
-    return null; // Skip courses we don't care about
-}
-
 async function fetchUQData(url) {
     console.log(`Fetching ${url}...`);
     return new Promise((resolve, reject) => {
@@ -38,6 +14,44 @@ async function fetchUQData(url) {
             res.on('end', () => resolve(data));
         }).on('error', reject);
     });
+}
+
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function stripHtmlAndNormalize(text) {
+    if (!text) return null;
+    return text
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;|&apos;/g, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/\s+/g, ' ')
+        .trim() || null;
+}
+
+async function fetchCourseDetails(code) {
+    const courseUrl = `https://programs-courses.uq.edu.au/course.html?course_code=${encodeURIComponent(code)}`;
+    try {
+        await delay(1000);
+        const html = await fetchUQData(courseUrl);
+
+        const summaryMatch = html.match(/<p[^>]*id=["']course-summary["'][^>]*>([\s\S]*?)<\/p>/i);
+        const prereqMatch = html.match(/<p[^>]*id=["']course-prerequisite["'][^>]*>([\s\S]*?)<\/p>/i);
+
+        const description = stripHtmlAndNormalize(summaryMatch ? summaryMatch[1] : null);
+        const prereqText = stripHtmlAndNormalize(prereqMatch ? prereqMatch[1] : null) || '';
+        const prereqs = Array.from(new Set(prereqText.match(/[A-Z]{4}\d{4}/g) || []));
+
+        return { description, prereqs };
+    } catch (err) {
+        console.warn(`Failed to fetch details for ${code}: ${err.message}`);
+        return { description: null, prereqs: [] };
+    }
 }
 
 function extractAppData(html) {
@@ -150,6 +164,8 @@ function updateDataJs(key, courses, content) {
         let str = `            { code: '${c.code}', name: '${c.name.replace(/'/g, "\\'")}', units: ${c.units}, cat: '${c.cat}'`;
         if (c.exclusiveWith) str += `, exclusiveWith: ${JSON.stringify(c.exclusiveWith)}`;
         if (c.isYearLong) str += `, isYearLong: true`;
+        if (c.description) str += `, description: '${c.description.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+        if (c.prereqs && c.prereqs.length > 0) str += `, prereqs: ${JSON.stringify(c.prereqs)}`;
         str += ` }`;
         return str;
     }).join(',\n');
@@ -236,6 +252,20 @@ async function main() {
         seCourses.push(...placeholders);
 
         console.log(`Extracted ${seCourses.length} SE courses.`);
+
+        const validCourseCodeRegex = /^[A-Z]{4}\d{4}$/;
+        const existingCodes = new Set(seCourses.map(c => c.code));
+        const realCourses = seCourses.filter(c => validCourseCodeRegex.test(c.code));
+
+        for (let i = 0; i < realCourses.length; i++) {
+            const course = realCourses[i];
+            const details = await fetchCourseDetails(course.code);
+
+            course.description = details.description;
+            course.prereqs = (details.prereqs || []).filter(pr => existingCodes.has(pr));
+
+            console.log(`Fetched details for ${course.code} (${i + 1}/${realCourses.length})`);
+        }
 
         // Build Dynamic Requirements Array for SE
         const beTotalMax = seData.programRequirements.unitsMaximum || 64;
