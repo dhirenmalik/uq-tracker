@@ -1,64 +1,3 @@
-const UQ_PLANNER_PROXY = 'https://lingering-bush-c27d.late-night.workers.dev/?/subjects';
-const semesterCache = {};
-
-async function ensureCourseSemesters(code) {
-    if (semesterCache[code]) return semesterCache[code];
-
-    // Get all unique years from the degree's semester definitions
-    const years = [...new Set(SEMESTERS.map(s => s.year))].sort();
-    const result = {}; // { year: [1], year: [1, 2], ... }
-
-    // Query each year in parallel
-    const fetches = years.map(async (y) => {
-        try {
-            const body = `search-term=${code}&semester=ALL&campus=ALL&faculty=ALL&type=ALL&days=1&days=2&days=3&days=4&days=5&days=6&days=0&start-time=00%3A00&end-time=23%3A00`;
-            const res = await fetch(UQ_PLANNER_PROXY, {
-                method: 'POST',
-                headers: {
-                    'accept': 'application/json',
-                    'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                    'year': y.toString()
-                },
-                body
-            });
-            const data = await res.json();
-            const sems = new Set();
-            for (const key in data) {
-                if (key.toUpperCase().startsWith(code)) {
-                    if (data[key].semester === 'S1') sems.add(1);
-                    if (data[key].semester === 'S2') sems.add(2);
-                }
-            }
-            if (sems.size > 0) {
-                result[y] = Array.from(sems).sort();
-            }
-        } catch (e) {
-        }
-    });
-    await Promise.all(fetches);
-
-    // For years with no API data (e.g. future years), prefer 2025 data
-    // as the most reliable reference, then fall back to nearest earlier year.
-    // If no data exists at all, leave unset so the course is placeable anywhere.
-    for (const y of years) {
-        if (!result[y]) {
-            if (result[2025]) {
-                result[y] = [...result[2025]];
-            } else {
-                for (let prev = y - 1; prev >= years[0]; prev--) {
-                    if (result[prev]) {
-                        result[y] = [...result[prev]];
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    semesterCache[code] = result;
-    return result;
-}
-
 let currentDegreeId = localStorage.getItem('uq_tracker_degree') || 'se_ai';
 let COURSES = DEGREES[currentDegreeId].courses;
 let REQUIREMENTS = DEGREES[currentDegreeId].requirements;
@@ -309,14 +248,11 @@ function createCourseCard(c) {
         ? `<div style="font-size: 0.75rem; color: #ef4444; margin-bottom: 0.25rem; font-weight: 500;">Excludes: ${c.exclusiveWith.join(', ')}</div>`
         : '';
 
-    let semsHtml = `<div class="sem-info" style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.75rem;">Loading semesters...</div>`;
-
     el.innerHTML = `
     <div class="course-code">${c.code}</div>
     <div class="course-name">${c.name}</div>
     ${excludesHtml}
-    ${semsHtml}
-    <div class="course-meta">
+    <div class="course-meta" style="margin-top: 0.75rem;">
       <span class="course-cat">${c.cat}</span>
       <span class="course-units">${c.units} U</span>
     </div>
@@ -325,42 +261,10 @@ function createCourseCard(c) {
     el.addEventListener('dragstart', handleDragStart);
     el.addEventListener('dragend', handleDragEnd);
 
-    if (c.semesters) {
-        updateCardSems(el, c.semesters);
-    } else {
-        ensureCourseSemesters(c.code).then(sems => {
-            c.semesters = sems;
-            updateCardSems(el, sems);
-        });
-    }
-
     return el;
 }
 
-function updateCardSems(el, sems) {
-    const infoEl = el.querySelector('.sem-info');
-    if (!infoEl) return;
 
-    if (sems && typeof sems === 'object') {
-        // sems is a year map: { 2024: [1, 2], 2025: [1], ... }
-        // Merge all semesters for a clean overview display
-        const allSems = new Set();
-        for (const y in sems) {
-            if (sems[y]) sems[y].forEach(s => allSems.add(s));
-        }
-        if (allSems.size > 0) {
-            const sorted = Array.from(allSems).sort();
-            infoEl.innerText = `Offered: ${sorted.map(s => 'S' + s).join(', ')}`;
-            infoEl.style.color = 'var(--text-secondary)';
-        } else {
-            infoEl.innerText = 'Semesters Unknown';
-            infoEl.style.color = '#ef4444';
-        }
-    } else {
-        infoEl.innerText = 'Semesters Unknown';
-        infoEl.style.color = '#ef4444';
-    }
-}
 
 let draggedCardId = null;
 
@@ -405,21 +309,6 @@ function handleDrop(e) {
 
     if (targetId !== 'unassignedList') {
         const courseInfo = getCourseInfo(code);
-
-        const targetSem = SEMESTERS.find(s => s.id === targetId);
-        if (courseInfo && targetSem) {
-            if (!courseInfo.semesters) {
-                // Semester data hasn't loaded from API yet — block placement
-                alert(`Semester availability for ${code} is still loading. Please wait a moment and try again.`);
-                return;
-            }
-            // Crosscheck against the specific year the user is placing into
-            const yearData = courseInfo.semesters[targetSem.year];
-            if (yearData && yearData.length > 0 && !yearData.includes(targetSem.semNum)) {
-                alert(`Cannot add ${code} to ${targetSem.name}. In ${targetSem.year}, it is only available in: ${yearData.map(s => 'S' + s).join(', ')}.`);
-                return;
-            }
-        }
 
         if (courseInfo && courseInfo.exclusiveWith) {
             for (const excl of courseInfo.exclusiveWith) {
