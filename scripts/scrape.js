@@ -26,12 +26,12 @@ function determineCategory(sectionPath) {
     return null; // Skip courses we don't care about
 }
 
-async function fetchUQData() {
-    console.log(`Fetching ${URL}...`);
+async function fetchUQData(url) {
+    console.log(`Fetching ${url}...`);
     return new Promise((resolve, reject) => {
-        https.get(URL, (res) => {
+        https.get(url, (res) => {
             if (res.statusCode !== 200) {
-                return reject(new Error(`Status Code: ${res.statusCode}`));
+                return reject(new Error(`Status Code: ${res.statusCode} for ${url}`));
             }
             let data = '';
             res.on('data', chunk => data += chunk);
@@ -40,18 +40,13 @@ async function fetchUQData() {
     });
 }
 
-function extractCourses(html) {
-    console.log('Extracting window.AppData...');
+function extractAppData(html) {
     const match = html.match(/window\.AppData\s*=\s*(\{.*?\});\s*<\/script>/s);
     if (!match) throw new Error('Could not find window.AppData in HTML');
+    return JSON.parse(match[1]);
+}
 
-    const data = JSON.parse(match[1]);
-    const components = data.programRequirements.payload.components;
-    const progRules = components.find(c => c.componentIntegrationIdentifier === 'PROGRAM_RULES');
-    const body = progRules.payload.body;
-
-    const courses = [];
-    const seenCodes = new Set();
+function traverseAndExtract(body, courses, seenCodes, determineCatFn) {
     const hardcodedExclusives = {
         'ENGG1001': ['CSSE1001'], 'CSSE1001': ['ENGG1001'],
         'MATH1051': ['MATH1071'], 'MATH1071': ['MATH1051'],
@@ -63,37 +58,30 @@ function extractCourses(html) {
         if (!code) return;
 
         let existing = courses.find(c => c.code === code);
+        const cat = determineCatFn(sectionPath, code);
 
-        const cat = determineCategory(sectionPath);
-        if (!cat) return; // Skip non-SE/Core courses
-
-        if (!existing) {
-            existing = {
-                code: code,
-                name: ref.name,
-                units: ref.unitsMaximum,
-                cat: cat,
-                exclusiveWith: []
-            };
-            // REIT4841/2 are year long
-            if (code === 'REIT4841' || code === 'REIT4842') {
-                existing.isYearLong = true;
-            }
+        if (!existing && cat) {
+            existing = { code: code, name: ref.name, units: ref.unitsMaximum, cat: cat, exclusiveWith: [] };
+            if (code === 'REIT4841' || code === 'REIT4842') existing.isYearLong = true;
             courses.push(existing);
             seenCodes.add(code);
+        } else if (existing && cat && existing.cat !== cat) {
+            // Overwrite category if a more specific one is found (e.g. AI Minor)
+            // or if the categorization function prefers the new one
+            if (cat === 'AI Minor') existing.cat = cat;
         }
 
-        // Add mutually exclusive info if in an equivalence group
-        const excl = isExclusiveGroup ? groupCodes.filter(c => c !== code) : [];
-        if (hardcodedExclusives[code]) {
-            hardcodedExclusives[code].forEach(e => {
-                if (!excl.includes(e)) excl.push(e);
+        if (existing) {
+            const excl = isExclusiveGroup ? groupCodes.filter(c => c !== code) : [];
+            if (hardcodedExclusives[code]) {
+                hardcodedExclusives[code].forEach(e => {
+                    if (!excl.includes(e)) excl.push(e);
+                });
+            }
+            excl.forEach(e => {
+                if (!existing.exclusiveWith.includes(e)) existing.exclusiveWith.push(e);
             });
         }
-
-        excl.forEach(e => {
-            if (!existing.exclusiveWith.includes(e)) existing.exclusiveWith.push(e);
-        });
     }
 
     function traverse(node, sectionPath = '') {
@@ -116,21 +104,14 @@ function extractCourses(html) {
             } else if (node.header?.title) {
                 const title = node.header.title;
                 const nextPath = sectionPath ? `${sectionPath} > ${title}` : title;
-                if (Array.isArray(node.body)) {
-                    traverse(node.body, nextPath);
-                }
+                if (Array.isArray(node.body)) traverse(node.body, nextPath);
             } else if (Array.isArray(node.body)) {
                 traverse(node.body, sectionPath);
             }
         }
     }
 
-    // We only care about BE Core (0) and SE Plan Options (6)
-    const corePart = body[0];
-    const sePart = body.find(p => p.header?.title?.toLowerCase().includes('software engineering'));
-
-    if (corePart) traverse(corePart.body || [], corePart.header?.title || 'Core');
-    if (sePart) traverse(sePart.body || [], sePart.header?.title || 'SE');
+    traverse(body);
 
     // Clean up empty exclusiveWith arrays
     courses.forEach(c => {
@@ -138,15 +119,9 @@ function extractCourses(html) {
             delete c.exclusiveWith;
         }
     });
-
-    return courses;
 }
 
-function updateDataJs(courses) {
-    console.log(`Updating data.js with ${courses.length} courses...`);
-    let content = fs.readFileSync(DATA_FILE, 'utf8');
-
-    // We want to replace the `courses: [ ... ]` array for the `se_ai` degree
+function updateDataJs(key, courses, content) {
     const coursesStr = courses.map(c => {
         let str = `            { code: '${c.code}', name: '${c.name.replace(/'/g, "\\'")}', units: ${c.units}, cat: '${c.cat}'`;
         if (c.exclusiveWith) str += `, exclusiveWith: ${JSON.stringify(c.exclusiveWith)}`;
@@ -155,61 +130,102 @@ function updateDataJs(courses) {
         return str;
     }).join(',\n');
 
-    const replacement = `courses: [\n${coursesStr}\n        ]`;
+    const searchStr = `${key}: {`;
+    const degreeStart = content.indexOf(searchStr);
+    if (degreeStart === -1) return content;
 
-    // Regex to match the courses array inside the se_ai degree definition
-    // It's a bit fragile using pure regex, so we'll do a simple string replacement
-    const parts = content.split(/courses:\s*\[/);
-    if (parts.length >= 2) {
-        // Find the end of the first courses array (`se_ai` degree)
-        const endIdx = parts[1].indexOf('        ]\n    },');
-        if (endIdx !== -1) {
-            const updated = parts[0] + 'courses: [\n' + coursesStr + '\n' + parts[1].substring(endIdx);
-            fs.writeFileSync(DATA_FILE, updated);
-            console.log('Successfully updated data.js!');
-            return;
-        }
-    }
-    console.error('Failed to parse data.js structure for replacement.');
+    const coursesArrayStart = content.indexOf('courses: [', degreeStart);
+    if (coursesArrayStart === -1) return content;
+
+    const coursesArrayEnd = content.indexOf('        ]\n    }', coursesArrayStart);
+    if (coursesArrayEnd === -1) return content;
+
+    return content.substring(0, coursesArrayStart) +
+        'courses: [\n' + coursesStr + '\n' +
+        content.substring(coursesArrayEnd);
 }
 
 async function main() {
     try {
-        const html = await fetchUQData();
-        const courses = extractCourses(html);
+        const YEAR = new Date().getFullYear();
+        const urls = {
+            se: `https://programs-courses.uq.edu.au/requirements/program/2455/${YEAR}`,
+            cs: `https://programs-courses.uq.edu.au/requirements/program/2451/${YEAR}`,
+            ai: `https://programs-courses.uq.edu.au/requirements/plan/ARINTA2455/${YEAR}`
+        };
 
-        // Add manual AI minor and placeholder courses to the extracted list
-        const manualCourses = [
-            // AI Minor specific courses that might not be easily parsed from the tree structure
-            { code: 'COMP3702', name: 'Artificial Intelligence', units: 2, cat: 'AI Minor' },
-            { code: 'COMP4702', name: 'Machine Learning', units: 2, cat: 'AI Minor' },
-            { code: 'COMP3710', name: 'Pattern Recognition and Analysis', units: 2, cat: 'AI Minor' },
-            { code: 'COMP4703', name: 'Natural Language Processing', units: 2, cat: 'AI Minor' },
-            { code: 'DECO2801', name: 'Human-Centred AI', units: 2, cat: 'AI Minor' },
-            { code: 'ELEC4630', name: 'Computer Vision and Deep Learning', units: 2, cat: 'AI Minor' },
-            { code: 'STAT3006', name: 'Statistical Learning', units: 2, cat: 'AI Minor' },
-            { code: 'STAT3007', name: 'Deep Learning', units: 2, cat: 'AI Minor' },
+        console.log('Fetching UQ data...');
+        const [htmlSE, htmlCS, htmlAI] = await Promise.all([
+            fetchUQData(urls.se),
+            fetchUQData(urls.cs),
+            fetchUQData(urls.ai)
+        ]);
 
-            // Placeholders
+        const seData = extractAppData(htmlSE);
+        const csData = extractAppData(htmlCS);
+        const aiData = extractAppData(htmlAI);
+
+        // 1. Process SE/Core Courses
+        const seCourses = [];
+        const seenSE = new Set();
+
+        let seBody = seData.programRequirements.payload.components.find(c => c.componentIntegrationIdentifier === 'PROGRAM_RULES').payload.body;
+        const corePart = seBody[0];
+        const sePart = seBody.find(p => p.header?.title?.toLowerCase().includes('software engineering'));
+
+        traverseAndExtract(corePart.body || [], seCourses, seenSE, () => 'Core');
+        traverseAndExtract(sePart.body || [], seCourses, seenSE, (path) => {
+            const s = path.toLowerCase();
+            if (s.includes('extension course')) return 'SE Ext';
+            if (s.includes('advanced elective')) return 'SE Adv';
+            if (s.includes('breadth elective')) return 'Elective';
+            return 'SE Core';
+        });
+
+        // 2. Process AI Minor Courses
+        const aiBody = aiData.programRequirements.payload.components.find(c => c.componentIntegrationIdentifier === 'PROGRAM_RULES').payload.body;
+        traverseAndExtract(aiBody, seCourses, seenSE, () => 'AI Minor');
+
+        // Add SE Placeholders
+        const placeholders = [
             { code: 'ELEC_GEN_1', name: 'General/BE Elective', units: 2, cat: 'Elective' },
             { code: 'ELEC_GEN_2', name: 'General/BE Elective', units: 2, cat: 'Elective' },
             { code: 'ELEC_GEN_3', name: 'General/BE Elective', units: 2, cat: 'Elective' }
         ];
+        seCourses.push(...placeholders);
 
-        // Map the existing AI courses to 'AI Minor' category if they exist in the extracted list
-        const aiCodes = manualCourses.filter(c => c.cat === 'AI Minor').map(c => c.code);
-        courses.forEach(c => {
-            if (aiCodes.includes(c.code)) c.cat = 'AI Minor';
-            // Explicitly classify Generative AI as SE Core based on the existing tracker data
-            if (c.code === 'COMP2701') c.cat = 'SE Core';
-        });
+        // 3. Process CS Courses
+        const csCourses = [];
+        const seenCS = new Set();
+        let csBody = csData.programRequirements.payload.components.find(c => c.componentIntegrationIdentifier === 'PROGRAM_RULES').payload.body;
 
-        // Add placeholders
-        manualCourses.filter(c => c.cat === 'Elective').forEach(c => courses.push(c));
+        traverseAndExtract(csBody[0].body || [], csCourses, seenCS, () => 'CS Core');
 
-        updateDataJs(courses);
+        // Extract from "Plan Options" or "Elective Courses"
+        for (let i = 1; i < csBody.length; i++) {
+            const title = (csBody[i].header?.title || '').toLowerCase();
+            if (title.includes('plan options') || title.includes('elective')) {
+                traverseAndExtract(csBody[i].body || [], csCourses, seenCS, () => 'Elective');
+            }
+        }
+
+        csCourses.push(
+            { code: 'CS_ELEC_1', name: 'CS Elective 1', units: 2, cat: 'Elective' },
+            { code: 'CS_ELEC_2', name: 'CS Elective 2', units: 2, cat: 'Elective' }
+        );
+
+        console.log(`Extracted ${seCourses.length} SE courses and ${csCourses.length} CS courses.`);
+
+        const DATA_FILE = path.join(__dirname, '..', 'data.js');
+        let content = fs.readFileSync(DATA_FILE, 'utf8');
+        content = updateDataJs('se_ai', seCourses, content);
+        content = updateDataJs('cs', csCourses, content);
+
+        fs.writeFileSync(DATA_FILE, content);
+        console.log('Successfully updated data.js!');
+
     } catch (err) {
-        console.error('Error running scraper:', err.message);
+        console.error('Error running scraper:', err);
     }
 }
 
