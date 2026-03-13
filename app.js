@@ -711,8 +711,9 @@ function handleDrop(e) {
 
     const targetId = this.dataset.semester || this.id;
 
+    const courseInfo = getCourseInfo(code);
+
     if (targetId !== 'unassignedList') {
-        const courseInfo = getCourseInfo(code);
 
         const targetSem = SEMESTERS.find(s => s.id === targetId);
         if (courseInfo && targetSem) {
