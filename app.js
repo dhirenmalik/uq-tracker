@@ -4,13 +4,12 @@ const semesterCache = {};
 async function ensureCourseSemesters(code) {
     if (semesterCache[code]) return semesterCache[code];
 
-    const year = new Date().getFullYear();
-    const sems = new Set();
+    // Get all unique years from the degree's semester definitions
+    const years = [...new Set(SEMESTERS.map(s => s.year))].sort();
+    const result = {}; // { year: [1], year: [1, 2], ... }
 
-    // Query both current and previous year and merge results.
-    // Current year may only have S1 data published (e.g. early in the year),
-    // so we also check last year to catch S2 offerings.
-    for (const y of [year, year - 1]) {
+    // Query each year in parallel
+    const fetches = years.map(async (y) => {
         try {
             const body = `search-term=${code}&semester=ALL&campus=ALL&faculty=ALL&type=ALL&days=1&days=2&days=3&days=4&days=5&days=6&days=0&start-time=00%3A00&end-time=23%3A00`;
             const res = await fetch(UQ_PLANNER_PROXY, {
@@ -23,19 +22,37 @@ async function ensureCourseSemesters(code) {
                 body
             });
             const data = await res.json();
+            const sems = new Set();
             for (const key in data) {
                 if (key.toUpperCase().startsWith(code)) {
                     if (data[key].semester === 'S1') sems.add(1);
                     if (data[key].semester === 'S2') sems.add(2);
                 }
             }
+            if (sems.size > 0) {
+                result[y] = Array.from(sems).sort();
+            }
         } catch (e) {
+        }
+    });
+    await Promise.all(fetches);
+
+    // For years with no API data (e.g. future years), fall back to the
+    // nearest earlier year that has data, so we still have a best guess.
+    for (const y of years) {
+        if (!result[y]) {
+            // Find the nearest previous year that has data
+            for (let prev = y - 1; prev >= years[0]; prev--) {
+                if (result[prev]) {
+                    result[y] = [...result[prev]];
+                    break;
+                }
+            }
         }
     }
 
-    const arr = Array.from(sems).sort();
-    semesterCache[code] = arr;
-    return arr;
+    semesterCache[code] = result;
+    return result;
 }
 
 let currentDegreeId = localStorage.getItem('uq_tracker_degree') || 'se_ai';
@@ -319,9 +336,22 @@ function createCourseCard(c) {
 function updateCardSems(el, sems) {
     const infoEl = el.querySelector('.sem-info');
     if (!infoEl) return;
-    if (sems && sems.length > 0) {
-        infoEl.innerText = `Sems: ${sems.join(', ')}`;
-        infoEl.style.color = 'var(--text-secondary)';
+
+    if (sems && typeof sems === 'object') {
+        // sems is a year map: { 2024: [1, 2], 2025: [1], ... }
+        // Merge all semesters for a clean overview display
+        const allSems = new Set();
+        for (const y in sems) {
+            if (sems[y]) sems[y].forEach(s => allSems.add(s));
+        }
+        if (allSems.size > 0) {
+            const sorted = Array.from(allSems).sort();
+            infoEl.innerText = `Offered: ${sorted.map(s => 'S' + s).join(', ')}`;
+            infoEl.style.color = 'var(--text-secondary)';
+        } else {
+            infoEl.innerText = 'Semesters Unknown';
+            infoEl.style.color = '#ef4444';
+        }
     } else {
         infoEl.innerText = 'Semesters Unknown';
         infoEl.style.color = '#ef4444';
@@ -379,9 +409,10 @@ function handleDrop(e) {
                 alert(`Semester availability for ${code} is still loading. Please wait a moment and try again.`);
                 return;
             }
-            if (courseInfo.semesters.length > 0 && !courseInfo.semesters.includes(targetSem.semNum)) {
-                const semNames = courseInfo.semesters.map(s => `Semester ${s}`).join(', ');
-                alert(`Cannot add ${code} to ${targetSem.name}. It is only available in: ${semNames}.`);
+            // Crosscheck against the specific year the user is placing into
+            const yearData = courseInfo.semesters[targetSem.year];
+            if (yearData && yearData.length > 0 && !yearData.includes(targetSem.semNum)) {
+                alert(`Cannot add ${code} to ${targetSem.name}. In ${targetSem.year}, it is only available in: ${yearData.map(s => 'S' + s).join(', ')}.`);
                 return;
             }
         }
