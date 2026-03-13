@@ -16,10 +16,10 @@ const DEGREES = {
         requirements: [
             { id: 'total', name: 'Total Units', target: 64, filter: () => true, color: 'var(--accent-color)' },
             { id: 'core', name: 'BE Core', target: 8, filter: c => c.cat === 'Core', color: 'var(--cat-core)' },
-            { id: 'secore', name: 'SE Compulsory', target: 34, filter: c => c.cat === 'SE Core', color: 'var(--cat-se)' },
-            { id: 'aiminor', name: 'AI Minor', target: 8, filter: c => c.cat === 'AI Minor' || c.code === 'COMP2701', color: 'var(--cat-ai)' },
-            { id: 'seext', name: 'SE Extension', target: 2, filter: c => c.cat === 'SE Ext', color: 'var(--cat-ext)' },
-            { id: 'seadv', name: 'SE Adv. Electives', target: 6, filter: c => c.cat === 'SE Adv', color: 'var(--cat-adv)' },
+            { id: 'secore', name: 'SE Core', target: 34, filter: c => c.cat === 'SE Core', color: 'var(--cat-secore)' },
+            { id: 'aiminor', name: 'AI Minor', target: 8, filter: c => c.cat === 'AI Minor', color: 'var(--cat-aiminor)' },
+            { id: 'ext', name: 'SE Ext / Adv', target: 2, filter: c => c.cat === 'SE Ext' || c.cat === 'SE Adv', color: 'var(--cat-seext)' },
+            { id: 'electives', name: 'Electives', target: 4, filter: c => c.cat === 'Elective', color: 'var(--cat-elec)' }
         ],
         courses: [
             { code: 'ENGG1100', name: 'Professional Engineering', units: 2, cat: 'Core' },
@@ -94,7 +94,7 @@ const DEGREES = {
         requirements: [
             { id: 'total', name: 'Total Units', target: 48, filter: () => true, color: 'var(--accent-color)' },
             { id: 'core', name: 'CS Core', target: 16, filter: c => c.cat === 'CS Core', color: 'var(--cat-core)' },
-            { id: 'electives', name: 'Electives', target: 32, filter: c => c.cat === 'Elective', color: 'var(--cat-elec)' },
+            { id: 'electives', name: 'Electives', target: 32, filter: c => c.cat === 'Elective', color: 'var(--cat-elec)' }
         ],
         courses: [
             { code: 'COMP1100', name: 'Introduction to Software Innovation', units: 2, cat: 'CS Core' },

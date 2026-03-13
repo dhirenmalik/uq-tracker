@@ -121,6 +121,30 @@ function traverseAndExtract(body, courses, seenCodes, determineCatFn) {
     });
 }
 
+function updateRequirementsJs(key, reqs, content) {
+    const reqsStr = reqs.map(r => {
+        let str = `            { id: '${r.id}', name: '${r.name}', target: ${r.target}`;
+        if (r.filterStr) str += `, filter: ${r.filterStr}`;
+        if (r.color) str += `, color: '${r.color}'`;
+        str += ` }`;
+        return str;
+    }).join(',\n');
+
+    const searchStr = `${key}: {`;
+    const degreeStart = content.indexOf(searchStr);
+    if (degreeStart === -1) return content;
+
+    const reqsArrayStart = content.indexOf('requirements: [', degreeStart);
+    if (reqsArrayStart === -1) return content;
+
+    const reqsArrayEnd = content.indexOf('        ],\n        courses:', reqsArrayStart);
+    if (reqsArrayEnd === -1) return content;
+
+    return content.substring(0, reqsArrayStart) +
+        'requirements: [\n' + reqsStr + '\n' +
+        content.substring(reqsArrayEnd);
+}
+
 function updateDataJs(key, courses, content) {
     const coursesStr = courses.map(c => {
         let str = `            { code: '${c.code}', name: '${c.name.replace(/'/g, "\\'")}', units: ${c.units}, cat: '${c.cat}'`;
@@ -145,6 +169,20 @@ function updateDataJs(key, courses, content) {
         content.substring(coursesArrayEnd);
 }
 
+// Helper to find the N parameter in a selection rule
+function getRuleParamN(part) {
+    if (!part || !part.header || !part.header.selectionRule) return 0;
+    const params = part.header.selectionRule.params || [];
+    const nParam = params.find(p => p.name === 'N');
+    return nParam ? nParam.value : 0;
+}
+function getRuleParamM(part) {
+    if (!part || !part.header || !part.header.selectionRule) return 0;
+    const params = part.header.selectionRule.params || [];
+    const mParam = params.find(p => p.name === 'M');
+    return mParam ? mParam.value : 0;
+}
+
 async function main() {
     try {
         const YEAR = new Date().getFullYear();
@@ -165,11 +203,16 @@ async function main() {
         const csData = extractAppData(htmlCS);
         const aiData = extractAppData(htmlAI);
 
-        // 1. Process SE/Core Courses
+        // -------------------------------------------------------------
+        // SE / AI MINOR
+        // -------------------------------------------------------------
         const seCourses = [];
         const seenSE = new Set();
 
-        let seBody = seData.programRequirements.payload.components.find(c => c.componentIntegrationIdentifier === 'PROGRAM_RULES').payload.body;
+        const seProgRules = seData.programRequirements.payload.components.find(c => c.componentIntegrationIdentifier === 'PROGRAM_RULES').payload;
+        const seBody = seProgRules.body;
+
+        // 1. Process SE/Core Courses
         const corePart = seBody[0];
         const sePart = seBody.find(p => p.header?.title?.toLowerCase().includes('software engineering'));
 
@@ -183,7 +226,8 @@ async function main() {
         });
 
         // 2. Process AI Minor Courses
-        const aiBody = aiData.programRequirements.payload.components.find(c => c.componentIntegrationIdentifier === 'PROGRAM_RULES').payload.body;
+        const aiProgRules = aiData.programRequirements.payload.components.find(c => c.componentIntegrationIdentifier === 'PROGRAM_RULES').payload;
+        const aiBody = aiProgRules.body;
         traverseAndExtract(aiBody, seCourses, seenSE, () => 'AI Minor');
 
         // Add SE Placeholders
@@ -194,10 +238,30 @@ async function main() {
         ];
         seCourses.push(...placeholders);
 
-        // 3. Process CS Courses
+        console.log(`Extracted ${seCourses.length} SE courses.`);
+
+        // Build Dynamic Requirements Array for SE
+        const beTotalMax = seData.programRequirements.unitsMaximum || 64;
+        const beCoreUnits = getRuleParamN(corePart);
+        const beGenElecUnitsMax = getRuleParamM(seBody.find(p => p.header?.title === 'General Elective Courses'));
+
+        // The overall SE minor requires 52 units, AI Minor requires 8, therefore SE rules total 44
+        const seReqs = [
+            { id: 'total', name: 'Total Units', target: beTotalMax, filterStr: '() => true', color: 'var(--accent-color)' },
+            { id: 'core', name: 'BE Core', target: beCoreUnits, filterStr: "c => c.cat === 'Core'", color: 'var(--cat-core)' },
+            { id: 'secore', name: 'SE Core', target: 34, filterStr: "c => c.cat === 'SE Core'", color: 'var(--cat-secore)' },
+            { id: 'aiminor', name: 'AI Minor', target: 8, filterStr: "c => c.cat === 'AI Minor'", color: 'var(--cat-aiminor)' },
+            { id: 'ext', name: 'SE Ext / Adv', target: 2, filterStr: "c => c.cat === 'SE Ext' || c.cat === 'SE Adv'", color: 'var(--cat-seext)' },
+            { id: 'electives', name: 'Electives', target: beGenElecUnitsMax, filterStr: "c => c.cat === 'Elective'", color: 'var(--cat-elec)' },
+        ];
+
+        // -------------------------------------------------------------
+        // CS
+        // -------------------------------------------------------------
         const csCourses = [];
         const seenCS = new Set();
-        let csBody = csData.programRequirements.payload.components.find(c => c.componentIntegrationIdentifier === 'PROGRAM_RULES').payload.body;
+        const csProgRules = csData.programRequirements.payload.components.find(c => c.componentIntegrationIdentifier === 'PROGRAM_RULES').payload;
+        let csBody = csProgRules.body;
 
         traverseAndExtract(csBody[0].body || [], csCourses, seenCS, () => 'CS Core');
 
@@ -214,11 +278,27 @@ async function main() {
             { code: 'CS_ELEC_2', name: 'CS Elective 2', units: 2, cat: 'Elective' }
         );
 
-        console.log(`Extracted ${seCourses.length} SE courses and ${csCourses.length} CS courses.`);
+        console.log(`Extracted ${csCourses.length} CS courses.`);
 
+        const csTotalMax = csData.programRequirements.unitsMaximum || 48;
+        const csCoreUnits = getRuleParamN(csBody[0]);
+        const csReqs = [
+            { id: 'total', name: 'Total Units', target: csTotalMax, filterStr: '() => true', color: 'var(--accent-color)' },
+            { id: 'core', name: 'CS Core', target: csCoreUnits, filterStr: "c => c.cat === 'CS Core'", color: 'var(--cat-core)' },
+            { id: 'electives', name: 'Electives', target: csTotalMax - csCoreUnits, filterStr: "c => c.cat === 'Elective'", color: 'var(--cat-elec)' },
+        ];
+
+
+        // -------------------------------------------------------------
+        // UPDATE FILE
+        // -------------------------------------------------------------
         const DATA_FILE = path.join(__dirname, '..', 'data.js');
         let content = fs.readFileSync(DATA_FILE, 'utf8');
+
+        content = updateRequirementsJs('se_ai', seReqs, content);
         content = updateDataJs('se_ai', seCourses, content);
+
+        content = updateRequirementsJs('cs', csReqs, content);
         content = updateDataJs('cs', csCourses, content);
 
         fs.writeFileSync(DATA_FILE, content);
