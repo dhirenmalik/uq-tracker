@@ -3,7 +3,7 @@ const semesterCache = {};
 
 async function ensureCourseSemesters(code) {
     if (semesterCache[code]) return semesterCache[code];
-    
+
     const year = new Date().getFullYear();
     for (const y of [year, year - 1]) {
         try {
@@ -30,7 +30,7 @@ async function ensureCourseSemesters(code) {
                 semesterCache[code] = arr;
                 return arr;
             }
-        } catch(e) {
+        } catch (e) {
         }
     }
     semesterCache[code] = [];
@@ -101,13 +101,13 @@ function changeDegree(newDegreeId) {
     COURSES = DEGREES[currentDegreeId].courses;
     REQUIREMENTS = DEGREES[currentDegreeId].requirements;
     SEMESTERS = DEGREES[currentDegreeId].semesters;
-    
+
     state.courses = [...COURSES];
     state.placements = {};
     state.activeFilter = 'All';
     state.searchQuery = '';
     state.loadingSemesters = true;
-    
+
     loadState();
     renderFilters();
     renderSemesters();
@@ -118,7 +118,7 @@ function changeDegree(newDegreeId) {
 function renderFilters() {
     const container = document.getElementById('catFilters');
     container.innerHTML = '<button class="filter-pill active" data-cat="All">All</button>';
-    
+
     const cats = [...new Set(state.courses.map(c => c.cat))];
     cats.forEach(cat => {
         const btn = document.createElement('button');
@@ -372,9 +372,15 @@ function handleDrop(e) {
         const courseInfo = getCourseInfo(code);
 
         const targetSem = SEMESTERS.find(s => s.id === targetId);
-        if (courseInfo && targetSem && courseInfo.semesters) {
-            if (!courseInfo.semesters.includes(targetSem.semNum)) {
-                alert(`Cannot add ${code} to ${targetSem.name}. It is only available in Semester(s): ${courseInfo.semesters.join(', ')}.`);
+        if (courseInfo && targetSem) {
+            if (!courseInfo.semesters) {
+                // Semester data hasn't loaded from API yet — block placement
+                alert(`Semester availability for ${code} is still loading. Please wait a moment and try again.`);
+                return;
+            }
+            if (courseInfo.semesters.length > 0 && !courseInfo.semesters.includes(targetSem.semNum)) {
+                const semNames = courseInfo.semesters.map(s => `Semester ${s}`).join(', ');
+                alert(`Cannot add ${code} to ${targetSem.name}. It is only available in: ${semNames}.`);
                 return;
             }
         }
