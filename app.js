@@ -1,3 +1,42 @@
+const UQ_PLANNER_PROXY = 'https://lingering-bush-c27d.late-night.workers.dev/?/subjects';
+const semesterCache = {};
+
+async function ensureCourseSemesters(code) {
+    if (semesterCache[code]) return semesterCache[code];
+    
+    const year = new Date().getFullYear();
+    for (const y of [year, year - 1]) {
+        try {
+            const body = `search-term=${code}&semester=ALL&campus=ALL&faculty=ALL&type=ALL&days=1&days=2&days=3&days=4&days=5&days=6&days=0&start-time=00%3A00&end-time=23%3A00`;
+            const res = await fetch(UQ_PLANNER_PROXY, {
+                method: 'POST',
+                headers: {
+                    'accept': 'application/json',
+                    'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                    'year': y.toString()
+                },
+                body
+            });
+            const data = await res.json();
+            const sems = new Set();
+            for (const key in data) {
+                if (key.toUpperCase().startsWith(code)) {
+                    if (data[key].semester === 'S1') sems.add(1);
+                    if (data[key].semester === 'S2') sems.add(2);
+                }
+            }
+            if (sems.size > 0) {
+                const arr = Array.from(sems).sort();
+                semesterCache[code] = arr;
+                return arr;
+            }
+        } catch(e) {
+        }
+    }
+    semesterCache[code] = [];
+    return [];
+}
+
 let currentDegreeId = localStorage.getItem('uq_tracker_degree') || 'se_ai';
 let COURSES = DEGREES[currentDegreeId].courses;
 let REQUIREMENTS = DEGREES[currentDegreeId].requirements;
@@ -248,12 +287,7 @@ function createCourseCard(c) {
         ? `<div style="font-size: 0.75rem; color: #ef4444; margin-bottom: 0.25rem; font-weight: 500;">Excludes: ${c.exclusiveWith.join(', ')}</div>`
         : '';
 
-    let semsHtml = '';
-    if (c.semesters && c.semesters.length > 0) {
-        semsHtml = `<div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.75rem;">Sems: ${c.semesters.join(', ')}</div>`;
-    } else {
-        semsHtml = `<div style="font-size: 0.75rem; color: #ef4444; margin-bottom: 0.75rem;">Semesters Unknown</div>`;
-    }
+    let semsHtml = `<div class="sem-info" style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.75rem;">Loading semesters...</div>`;
 
     el.innerHTML = `
     <div class="course-code">${c.code}</div>
@@ -269,7 +303,28 @@ function createCourseCard(c) {
     el.addEventListener('dragstart', handleDragStart);
     el.addEventListener('dragend', handleDragEnd);
 
+    if (c.semesters) {
+        updateCardSems(el, c.semesters);
+    } else {
+        ensureCourseSemesters(c.code).then(sems => {
+            c.semesters = sems;
+            updateCardSems(el, sems);
+        });
+    }
+
     return el;
+}
+
+function updateCardSems(el, sems) {
+    const infoEl = el.querySelector('.sem-info');
+    if (!infoEl) return;
+    if (sems && sems.length > 0) {
+        infoEl.innerText = `Sems: ${sems.join(', ')}`;
+        infoEl.style.color = 'var(--text-secondary)';
+    } else {
+        infoEl.innerText = 'Semesters Unknown';
+        infoEl.style.color = '#ef4444';
+    }
 }
 
 let draggedCardId = null;
