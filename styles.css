@@ -10,8 +10,11 @@
 
   --cat-core: #000000;
   --cat-se: #ff003c;
+  --cat-secore: #ff003c;
   --cat-ai: #ffea00;
+  --cat-aiminor: #ffea00;
   --cat-ext: #0000ff;
+  --cat-seext: #0000ff;
   --cat-adv: #ff00ff;
   --cat-elec: #00ff00;
 
@@ -408,6 +411,30 @@ body {
 .course-card:hover .course-link:hover {
   background: var(--surface-color);
   color: var(--text-primary);
+}
+
+.course-excludes {
+  font-size: 0.75rem;
+  color: #ef4444;
+  margin-bottom: 0.25rem;
+  font-weight: 500;
+}
+
+.sem-info {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.75rem;
+  font-family: var(--font-body);
+}
+
+.sem-info--placed {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  line-height: 1.2;
+}
+
+.sem-info--unknown {
+  color: #ef4444;
 }
 
 .course-name {

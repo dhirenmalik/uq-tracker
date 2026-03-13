@@ -81,6 +81,5 @@ const CAT_COLORS = {
     'AI Minor': 'var(--cat-ai)',
     'SE Ext': 'var(--cat-ext)',
     'SE Adv': 'var(--cat-adv)',
-    'CS Core': 'var(--cat-core)',
     'Elective': 'var(--cat-elec)',
 };

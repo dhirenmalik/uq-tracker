@@ -1,3 +1,7 @@
+// ============================================================
+// API
+// ============================================================
+
 const UQ_PLANNER_PROXY = 'https://lingering-bush-c27d.late-night.workers.dev/?/subjects';
 const semesterCache = {};
 
@@ -59,6 +63,10 @@ async function ensureCourseSemesters(code) {
     return result;
 }
 
+// ============================================================
+// STATE
+// ============================================================
+
 let currentDegreeId = localStorage.getItem('uq_tracker_degree');
 if (!currentDegreeId || !DEGREES[currentDegreeId]) currentDegreeId = 'se_ai';
 let COURSES = DEGREES[currentDegreeId].courses;
@@ -69,8 +77,7 @@ let state = {
     courses: [...COURSES],
     placements: {},
     activeFilter: 'All',
-    searchQuery: '',
-    loadingSemesters: false
+    searchQuery: ''
 };
 
 const HISTORY_LIMIT = 50;
@@ -78,6 +85,11 @@ const THEME_STORAGE_KEY = 'uq_tracker_theme';
 let history = [];
 let historyIndex = -1;
 let shareToastTimer = null;
+const dom = {};
+
+// ============================================================
+// INIT
+// ============================================================
 
 document.addEventListener('DOMContentLoaded', () => {
     initApp();
@@ -86,10 +98,23 @@ document.addEventListener('DOMContentLoaded', () => {
 async function initApp() {
     applyInitialTheme();
 
-    const degreeSelect = document.getElementById('degreeSelect');
-    if (degreeSelect) {
-        degreeSelect.value = currentDegreeId;
-        degreeSelect.addEventListener('change', e => {
+    dom.degreeSelect = document.getElementById('degreeSelect');
+    dom.courseSearch = document.getElementById('courseSearch');
+    dom.resetBtn = document.getElementById('resetBtn');
+    dom.undoBtn = document.getElementById('undoBtn');
+    dom.redoBtn = document.getElementById('redoBtn');
+    dom.shareBtn = document.getElementById('shareBtn');
+    dom.themeToggleBtn = document.getElementById('themeToggleBtn');
+    dom.unassignedList = document.getElementById('unassignedList');
+    dom.semestersGrid = document.getElementById('semestersGrid');
+    dom.progressDashboard = document.getElementById('progressDashboard');
+    dom.loadingBar = document.getElementById('loadingBar');
+    dom.loadingBarFill = document.getElementById('loadingBarFill');
+    dom.loadingBarText = document.getElementById('loadingBarText');
+
+    if (dom.degreeSelect) {
+        dom.degreeSelect.value = currentDegreeId;
+        dom.degreeSelect.addEventListener('change', e => {
             if (confirm("Changing degree will switch your plan. Continue?")) {
                 changeDegree(e.target.value);
             } else {
@@ -101,37 +126,28 @@ async function initApp() {
     loadState();
     initializeHistory();
     renderFilters();
-    renderSemesters();
-    renderCatalog();
-    updateProgress();
+    renderAll();
     updateHistoryControls();
     updateThemeToggleLabel();
 
-    document.getElementById('courseSearch').addEventListener('input', e => {
+    dom.courseSearch.addEventListener('input', e => {
         state.searchQuery = e.target.value.toLowerCase();
         renderCatalog();
     });
 
-    document.getElementById('resetBtn').addEventListener('click', () => {
+    dom.resetBtn.addEventListener('click', () => {
         if (confirm("Are you sure you want to reset your plan?")) {
             state.placements = {};
             saveState();
-            renderSemesters();
-            renderCatalog();
-            updateProgress();
+            renderAll();
         }
     });
 
-    const undoBtn = document.getElementById('undoBtn');
-    const redoBtn = document.getElementById('redoBtn');
-    const shareBtn = document.getElementById('shareBtn');
-    const themeToggleBtn = document.getElementById('themeToggleBtn');
-
-    if (undoBtn) undoBtn.addEventListener('click', undo);
-    if (redoBtn) redoBtn.addEventListener('click', redo);
-    if (shareBtn) shareBtn.addEventListener('click', sharePlan);
-    if (themeToggleBtn) {
-        themeToggleBtn.addEventListener('click', () => {
+    if (dom.undoBtn) dom.undoBtn.addEventListener('click', undo);
+    if (dom.redoBtn) dom.redoBtn.addEventListener('click', redo);
+    if (dom.shareBtn) dom.shareBtn.addEventListener('click', sharePlan);
+    if (dom.themeToggleBtn) {
+        dom.themeToggleBtn.addEventListener('click', () => {
             const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
             setTheme(current === 'dark' ? 'light' : 'dark', true);
         });
@@ -139,11 +155,10 @@ async function initApp() {
 
     document.addEventListener('keydown', handleHistoryShortcuts);
 
-    const unassignedList = document.getElementById('unassignedList');
-    unassignedList.addEventListener('dragover', handleDragOver);
-    unassignedList.addEventListener('drop', handleDrop);
-    unassignedList.addEventListener('dragenter', handleDragEnter);
-    unassignedList.addEventListener('dragleave', handleDragLeave);
+    dom.unassignedList.addEventListener('dragover', handleDragOver);
+    dom.unassignedList.addEventListener('drop', handleDrop);
+    dom.unassignedList.addEventListener('dragenter', handleDragEnter);
+    dom.unassignedList.addEventListener('dragleave', handleDragLeave);
 
     const realCodes = state.courses
         .filter(c => /^[A-Z]{4}\d{4}$/.test(c.code))
@@ -152,9 +167,6 @@ async function initApp() {
 
     if (total > 0) {
         let completed = 0;
-        const bar = document.getElementById('loadingBar');
-        const fill = document.getElementById('loadingBarFill');
-        const text = document.getElementById('loadingBarText');
 
         const promises = realCodes.map(code =>
             ensureCourseSemesters(code).then(sems => {
@@ -162,22 +174,25 @@ async function initApp() {
                 if (cInfo) cInfo.semesters = sems;
                 completed++;
                 const pct = Math.round((completed / total) * 100);
-                if (fill) fill.style.width = pct + '%';
-                if (text) text.textContent = `LOADING SEMESTERS ${completed}/${total}`;
+                if (dom.loadingBarFill) dom.loadingBarFill.style.width = pct + '%';
+                if (dom.loadingBarText) dom.loadingBarText.textContent = `LOADING SEMESTERS ${completed}/${total}`;
             })
         );
 
         await Promise.all(promises);
 
-        if (bar) bar.classList.add('hidden');
+        if (dom.loadingBar) dom.loadingBar.classList.add('hidden');
 
         renderSemesters();
         renderCatalog();
     } else {
-        const bar = document.getElementById('loadingBar');
-        if (bar) bar.classList.add('hidden');
+        if (dom.loadingBar) dom.loadingBar.classList.add('hidden');
     }
 }
+
+// ============================================================
+// DEGREE
+// ============================================================
 
 function changeDegree(newDegreeId) {
     localStorage.setItem('uq_tracker_degree', newDegreeId);
@@ -190,16 +205,16 @@ function changeDegree(newDegreeId) {
     state.placements = {};
     state.activeFilter = 'All';
     state.searchQuery = '';
-    state.loadingSemesters = true;
-
     loadState();
     initializeHistory();
     renderFilters();
-    renderSemesters();
-    renderCatalog();
-    updateProgress();
+    renderAll();
     updateHistoryControls();
 }
+
+// ============================================================
+// FILTERS
+// ============================================================
 
 function renderFilters() {
     const container = document.getElementById('catFilters');
@@ -210,7 +225,7 @@ function renderFilters() {
         const btn = document.createElement('button');
         btn.className = 'filter-pill';
         btn.dataset.cat = cat;
-        btn.innerText = cat;
+        btn.textContent = cat;
         container.appendChild(btn);
     });
 
@@ -224,6 +239,10 @@ function renderFilters() {
         });
     });
 }
+
+// ============================================================
+// PERSISTENCE
+// ============================================================
 
 function loadState() {
     let loadedFromHash = false;
@@ -266,6 +285,10 @@ function saveState() {
     updateHistoryControls();
 }
 
+// ============================================================
+// HISTORY
+// ============================================================
+
 function clonePlacements() {
     return JSON.parse(JSON.stringify(state.placements || {}));
 }
@@ -303,9 +326,7 @@ function pushHistorySnapshot() {
 function restoreHistorySnapshot(snapshot) {
     state.placements = JSON.parse(JSON.stringify(snapshot || {}));
     localStorage.setItem(`uq_tracker_state_${currentDegreeId}`, JSON.stringify(state.placements));
-    renderSemesters();
-    renderCatalog();
-    updateProgress();
+    renderAll();
     updateHistoryControls();
 }
 
@@ -322,10 +343,8 @@ function redo() {
 }
 
 function updateHistoryControls() {
-    const undoBtn = document.getElementById('undoBtn');
-    const redoBtn = document.getElementById('redoBtn');
-    if (undoBtn) undoBtn.disabled = historyIndex <= 0;
-    if (redoBtn) redoBtn.disabled = historyIndex >= history.length - 1;
+    if (dom.undoBtn) dom.undoBtn.disabled = historyIndex <= 0;
+    if (dom.redoBtn) dom.redoBtn.disabled = historyIndex >= history.length - 1;
 }
 
 function handleHistoryShortcuts(e) {
@@ -348,6 +367,10 @@ function handleHistoryShortcuts(e) {
         redo();
     }
 }
+
+// ============================================================
+// SHARE
+// ============================================================
 
 function encodeStateForHash() {
     const payload = {
@@ -398,6 +421,10 @@ function showShareToast(message) {
     }, 2000);
 }
 
+// ============================================================
+// THEME
+// ============================================================
+
 function detectInitialTheme() {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
     if (stored === 'dark' || stored === 'light') return stored;
@@ -416,15 +443,17 @@ function applyInitialTheme() {
 }
 
 function updateThemeToggleLabel() {
-    const btn = document.getElementById('themeToggleBtn');
-    if (!btn) return;
+    if (!dom.themeToggleBtn) return;
     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    btn.textContent = isDark ? 'LIGHT' : 'DARK';
+    dom.themeToggleBtn.textContent = isDark ? 'LIGHT' : 'DARK';
 }
 
+// ============================================================
+// RENDERING
+// ============================================================
+
 function renderSemesters() {
-    const grid = document.getElementById('semestersGrid');
-    grid.innerHTML = '';
+    dom.semestersGrid.innerHTML = '';
 
     SEMESTERS.forEach(sem => {
         const box = document.createElement('div');
@@ -476,24 +505,23 @@ function renderSemesters() {
                     }
                 }
 
-                card.querySelector('.course-units').innerText = `${semUnits} U`;
+                card.querySelector('.course-units').textContent = `${semUnits} U`;
 
                 dropzone.appendChild(card);
             }
         });
 
-        header.querySelector('.semester-units').innerText = `${units} / 8 units`;
+        header.querySelector('.semester-units').textContent = `${units} / 8 units`;
         if (units > 8) header.querySelector('.semester-units').style.color = '#ef4444';
 
         box.appendChild(header);
         box.appendChild(dropzone);
-        grid.appendChild(box);
+        dom.semestersGrid.appendChild(box);
     });
 }
 
 function renderCatalog() {
-    const unassignedList = document.getElementById('unassignedList');
-    unassignedList.innerHTML = '';
+    dom.unassignedList.innerHTML = '';
 
     state.courses.forEach(c => {
         if (state.placements[c.code] && state.placements[c.code] !== 'unassigned') return;
@@ -502,14 +530,13 @@ function renderCatalog() {
         const matchSearch = c.code.toLowerCase().includes(state.searchQuery) || c.name.toLowerCase().includes(state.searchQuery);
 
         if (matchCat && matchSearch) {
-            unassignedList.appendChild(createCourseCard(c));
+            dom.unassignedList.appendChild(createCourseCard(c));
         }
     });
 }
 
 function updateProgress() {
-    const dashboard = document.getElementById('progressDashboard');
-    dashboard.innerHTML = '';
+    dom.progressDashboard.innerHTML = '';
 
     const plannedCourses = Object.keys(state.placements)
         .filter(code => state.placements[code] !== 'unassigned')
@@ -534,13 +561,23 @@ function updateProgress() {
         <div class="progress-bar-fill" style="width: ${percentage}%; background: ${req.color}"></div>
       </div>
     `;
-        dashboard.appendChild(widget);
+        dom.progressDashboard.appendChild(widget);
     });
 }
 
 function getCourseInfo(code) {
     return state.courses.find(c => c.code === code);
 }
+
+function renderAll() {
+    renderSemesters();
+    renderCatalog();
+    updateProgress();
+}
+
+// ============================================================
+// CARDS
+// ============================================================
 
 function createCourseCard(c) {
     const el = document.createElement('div');
@@ -551,10 +588,10 @@ function createCourseCard(c) {
     el.style.setProperty('--bg-indicator', CAT_COLORS[c.cat] || '#ffffff');
 
     const excludesHtml = c.exclusiveWith
-        ? `<div style="font-size: 0.75rem; color: #ef4444; margin-bottom: 0.25rem; font-weight: 500;">Excludes: ${c.exclusiveWith.join(', ')}</div>`
+        ? `<div class="course-excludes">Excludes: ${c.exclusiveWith.join(', ')}</div>`
         : '';
 
-    let semsHtml = `<div class="sem-info" style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.75rem;">Loading semesters...</div>`;
+    const semsHtml = `<div class="sem-info">Loading semesters...</div>`;
 
     const isRealCourse = /^[A-Z]{4}\d{4}$/.test(c.code);
     const linkHtml = isRealCourse
@@ -595,6 +632,8 @@ function updateCardSems(el, sems) {
     const placement = code ? state.placements[code] : null;
     const isPlaced = !!placement && placement !== 'unassigned';
 
+    infoEl.className = 'sem-info';
+
     if (sems && typeof sems === 'object') {
         const years = Object.keys(sems).sort();
 
@@ -605,11 +644,8 @@ function updateCardSems(el, sems) {
                 .join(' | ');
 
             if (yearly) {
-                infoEl.innerText = yearly;
-                infoEl.style.color = 'var(--text-secondary)';
-                infoEl.style.fontFamily = 'var(--font-mono)';
-                infoEl.style.fontSize = '0.7rem';
-                infoEl.style.lineHeight = '1.2';
+                infoEl.textContent = yearly;
+                infoEl.classList.add('sem-info--placed');
                 return;
             }
         }
@@ -621,23 +657,18 @@ function updateCardSems(el, sems) {
 
         if (allSems.size > 0) {
             const sorted = Array.from(allSems).sort();
-            infoEl.innerText = `Offered: ${sorted.map(s => 'S' + s).join(', ')}`;
-            infoEl.style.color = 'var(--text-secondary)';
-            infoEl.style.fontFamily = 'var(--font-body)';
-            infoEl.style.fontSize = '0.75rem';
-        } else {
-            infoEl.innerText = 'Semesters Unknown';
-            infoEl.style.color = '#ef4444';
-            infoEl.style.fontFamily = 'var(--font-body)';
-            infoEl.style.fontSize = '0.75rem';
+            infoEl.textContent = `Offered: ${sorted.map(s => 'S' + s).join(', ')}`;
+            return;
         }
-    } else {
-        infoEl.innerText = 'Semesters Unknown';
-        infoEl.style.color = '#ef4444';
-        infoEl.style.fontFamily = 'var(--font-body)';
-        infoEl.style.fontSize = '0.75rem';
     }
+
+    infoEl.textContent = 'Semesters Unknown';
+    infoEl.classList.add('sem-info--unknown');
 }
+
+// ============================================================
+// DRAG & DROP
+// ============================================================
 
 let draggedCardId = null;
 
@@ -735,8 +766,6 @@ function handleDrop(e) {
     if (targetId === 'unassignedList') {
         state.placements[code] = 'unassigned';
     } else {
-        const courseInfo = getCourseInfo(code);
-
         if (courseInfo && courseInfo.isYearLong) {
             const currentSemIdx = SEMESTERS.findIndex(s => s.id === targetId);
 
@@ -753,7 +782,5 @@ function handleDrop(e) {
     }
 
     saveState();
-    renderSemesters();
-    renderCatalog();
-    updateProgress();
+    renderAll();
 }
