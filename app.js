@@ -8,7 +8,7 @@ let state = {
     placements: {},
     activeFilter: 'All',
     searchQuery: '',
-    loadingSemesters: true
+    loadingSemesters: false
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -54,8 +54,6 @@ async function initApp() {
     unassignedList.addEventListener('drop', handleDrop);
     unassignedList.addEventListener('dragenter', handleDragEnter);
     unassignedList.addEventListener('dragleave', handleDragLeave);
-
-    await fetchSemestersForAll();
 }
 
 function changeDegree(newDegreeId) {
@@ -76,7 +74,6 @@ function changeDegree(newDegreeId) {
     renderSemesters();
     renderCatalog();
     updateProgress();
-    fetchSemestersForAll();
 }
 
 function renderFilters() {
@@ -101,54 +98,6 @@ function renderFilters() {
             renderCatalog();
         });
     });
-}
-
-async function fetchSemestersForAll() {
-    const promises = state.courses.map(async course => {
-        try {
-            const formBody = `search-term=${course.code}&semester=ALL&campus=ALL&faculty=ALL&type=ALL&days=1&days=2&days=3&days=4&days=5&days=6&days=0&start-time=00%3A00&end-time=23%3A00`;
-
-            const fetchForYear = async (year) => {
-                const response = await fetch('https://lingering-bush-c27d.late-night.workers.dev/?/subjects', {
-                    method: 'POST',
-                    headers: {
-                        'accept': 'application/json, text/javascript, */*; q=0.01',
-                        'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                        'year': year.toString()
-                    },
-                    body: formBody
-                });
-                const data = await response.json();
-                const sems = new Set();
-
-                Object.keys(data).forEach(key => {
-                    if (key.toUpperCase().startsWith(course.code)) {
-                        const semStr = data[key].semester;
-                        if (semStr === 'S1') sems.add(1);
-                        if (semStr === 'S2') sems.add(2);
-                        if (semStr === 'S3') sems.add(3);
-                    }
-                });
-                return Array.from(sems).sort();
-            };
-
-            let semsList = await fetchForYear(2024);
-
-            if (semsList.length === 0) {
-                semsList = await fetchForYear(2023);
-            }
-
-            course.semesters = semsList;
-        } catch (e) {
-            course.semesters = [1, 2];
-        }
-    });
-
-    await Promise.all(promises);
-    state.loadingSemesters = false;
-
-    renderCatalog();
-    renderSemesters();
 }
 
 function loadState() {
@@ -300,9 +249,7 @@ function createCourseCard(c) {
         : '';
 
     let semsHtml = '';
-    if (state.loadingSemesters) {
-        semsHtml = `<div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.75rem; font-style: italic;">Fetching semesters...</div>`;
-    } else if (c.semesters && c.semesters.length > 0) {
+    if (c.semesters && c.semesters.length > 0) {
         semsHtml = `<div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.75rem;">Sems: ${c.semesters.join(', ')}</div>`;
     } else {
         semsHtml = `<div style="font-size: 0.75rem; color: #ef4444; margin-bottom: 0.75rem;">Semesters Unknown</div>`;
