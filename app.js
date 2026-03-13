@@ -37,15 +37,19 @@ async function ensureCourseSemesters(code) {
     });
     await Promise.all(fetches);
 
-    // For years with no API data (e.g. future years), fall back to the
-    // nearest earlier year that has data, so we still have a best guess.
+    // For years with no API data (e.g. future years), prefer 2025 data
+    // as the most reliable reference, then fall back to nearest earlier year.
+    // If no data exists at all, leave unset so the course is placeable anywhere.
     for (const y of years) {
         if (!result[y]) {
-            // Find the nearest previous year that has data
-            for (let prev = y - 1; prev >= years[0]; prev--) {
-                if (result[prev]) {
-                    result[y] = [...result[prev]];
-                    break;
+            if (result[2025]) {
+                result[y] = [...result[2025]];
+            } else {
+                for (let prev = y - 1; prev >= years[0]; prev--) {
+                    if (result[prev]) {
+                        result[y] = [...result[prev]];
+                        break;
+                    }
                 }
             }
         }
