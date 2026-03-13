@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>UQ Semester Tracker | Software Engineering + AI Minor</title>
+  <link rel="stylesheet" href="styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <header class="glass-header">
+      <div class="header-main">
+        <h1>UQ Semester Tracker</h1>
+        <p>Software Engineering (AI Minor) — BE(Hons) 2024 to 2027</p>
+        <button id="resetBtn" class="premium-btn">Reset Plan</button>
+      </div>
+      <div class="progress-dashboard" id="progressDashboard">
+        <!-- Progress widgets dynamically injected here -->
+      </div>
+    </header>
+
+    <div class="main-content">
+      <!-- Course Catalog -->
+      <aside class="catalog-panel glass-panel">
+        <div class="catalog-header">
+          <h2>Course Catalog</h2>
+          <div class="search-box">
+            <input type="text" id="courseSearch" placeholder="Search a course..." />
+          </div>
+          <div class="cat-filters" id="catFilters">
+             <button class="filter-pill active" data-cat="All">All</button>
+             <button class="filter-pill" data-cat="Core">BE Core</button>
+             <button class="filter-pill" data-cat="SE Core">SE Core</button>
+             <button class="filter-pill" data-cat="AI Minor">AI Minor</button>
+             <button class="filter-pill" data-cat="SE Adv">SE Electives</button>
+          </div>
+        </div>
+        <div class="course-list-container">
+            <div class="course-list" id="unassignedList" data-semester="unassigned">
+            <!-- Draggable courses injected here -->
+            </div>
+        </div>
+      </aside>
+
+      <!-- Semesters Grid -->
+      <main class="semesters-grid" id="semestersGrid">
+        <!-- 8 Semesters initialized dynamically by JS -->
+      </main>
+    </div>
+  </div>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
