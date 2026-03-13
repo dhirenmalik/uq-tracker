@@ -7,9 +7,6 @@
   --text-secondary: #000000;
   --accent-color: #ff003c;
   --accent-hover: #000000;
-  --tooltip-bg: #000000;
-  --tooltip-text: #ffffff;
-  --tooltip-border: #ffffff;
 
   --cat-core: #000000;
   --cat-se: #ff003c;
@@ -32,9 +29,6 @@
   --text-secondary: #cccccc;
   --accent-color: #ff003c;
   --accent-hover: #ffffff;
-  --tooltip-bg: #000000;
-  --tooltip-text: #ffffff;
-  --tooltip-border: #ffffff;
 }
 
 * {
@@ -163,6 +157,38 @@ body {
   overflow-x: auto;
   border-top: 2px solid var(--border-color);
   border-bottom: 2px solid var(--border-color);
+}
+
+.loading-bar {
+  position: relative;
+  height: 28px;
+  background: var(--surface-color);
+  border-bottom: 4px solid var(--border-color);
+  overflow: hidden;
+}
+
+.loading-bar.hidden {
+  display: none;
+}
+
+.loading-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent-color);
+}
+
+.loading-bar-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  white-space: nowrap;
+  mix-blend-mode: difference;
 }
 
 .progress-widget {
@@ -330,29 +356,6 @@ body {
   color: var(--surface-color);
 }
 
-.course-tooltip {
-  display: none;
-  position: absolute;
-  left: 0;
-  top: 100%;
-  margin-top: 4px;
-  max-width: 300px;
-  background: var(--tooltip-bg);
-  color: var(--tooltip-text);
-  border: 2px solid var(--tooltip-border);
-  font-family: var(--font-body);
-  font-size: 0.75rem;
-  line-height: 1.35;
-  padding: 0.75rem;
-  z-index: 100;
-  pointer-events: none;
-  text-transform: none;
-}
-
-.course-card:hover .course-tooltip {
-  display: block;
-}
-
 .course-card:active {
   cursor: grabbing;
 }
@@ -375,6 +378,36 @@ body {
   font-size: 1.25rem;
   color: var(--text-primary);
   text-transform: uppercase;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.course-link {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--accent-color);
+  text-decoration: none;
+  text-transform: uppercase;
+  border: 1px solid var(--accent-color);
+  padding: 0.15rem 0.35rem;
+  cursor: pointer;
+}
+
+.course-link:hover {
+  background: var(--accent-color);
+  color: var(--surface-color);
+}
+
+.course-card:hover .course-link {
+  color: var(--surface-color);
+  border-color: var(--surface-color);
+}
+
+.course-card:hover .course-link:hover {
+  background: var(--surface-color);
+  color: var(--text-primary);
 }
 
 .course-name {

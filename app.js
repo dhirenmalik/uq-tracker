@@ -144,6 +144,39 @@ async function initApp() {
     unassignedList.addEventListener('drop', handleDrop);
     unassignedList.addEventListener('dragenter', handleDragEnter);
     unassignedList.addEventListener('dragleave', handleDragLeave);
+
+    const realCodes = state.courses
+        .filter(c => /^[A-Z]{4}\d{4}$/.test(c.code))
+        .map(c => c.code);
+    const total = realCodes.length;
+
+    if (total > 0) {
+        let completed = 0;
+        const bar = document.getElementById('loadingBar');
+        const fill = document.getElementById('loadingBarFill');
+        const text = document.getElementById('loadingBarText');
+
+        const promises = realCodes.map(code =>
+            ensureCourseSemesters(code).then(sems => {
+                const cInfo = state.courses.find(c => c.code === code);
+                if (cInfo) cInfo.semesters = sems;
+                completed++;
+                const pct = Math.round((completed / total) * 100);
+                if (fill) fill.style.width = pct + '%';
+                if (text) text.textContent = `LOADING SEMESTERS ${completed}/${total}`;
+            })
+        );
+
+        await Promise.all(promises);
+
+        if (bar) bar.classList.add('hidden');
+
+        renderSemesters();
+        renderCatalog();
+    } else {
+        const bar = document.getElementById('loadingBar');
+        if (bar) bar.classList.add('hidden');
+    }
 }
 
 function changeDegree(newDegreeId) {
@@ -516,9 +549,6 @@ function createCourseCard(c) {
     el.id = 'card-' + c.code;
     el.dataset.code = c.code;
     el.style.setProperty('--bg-indicator', CAT_COLORS[c.cat] || '#ffffff');
-    if (c.description) {
-        el.title = c.description;
-    }
 
     const excludesHtml = c.exclusiveWith
         ? `<div style="font-size: 0.75rem; color: #ef4444; margin-bottom: 0.25rem; font-weight: 500;">Excludes: ${c.exclusiveWith.join(', ')}</div>`
@@ -526,8 +556,13 @@ function createCourseCard(c) {
 
     let semsHtml = `<div class="sem-info" style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.75rem;">Loading semesters...</div>`;
 
+    const isRealCourse = /^[A-Z]{4}\d{4}$/.test(c.code);
+    const linkHtml = isRealCourse
+        ? `<a class="course-link" href="https://programs-courses.uq.edu.au/course.html?course_code=${c.code}" target="_blank" draggable="false">UQ&nbsp;PAGE&nbsp;&rarr;</a>`
+        : '';
+
     el.innerHTML = `
-    <div class="course-code">${c.code}</div>
+    <div class="course-code">${c.code}${linkHtml}</div>
     <div class="course-name">${c.name}</div>
     ${excludesHtml}
     ${semsHtml}
@@ -536,13 +571,6 @@ function createCourseCard(c) {
       <span class="course-units">${c.units} U</span>
     </div>
   `;
-
-    if (c.description) {
-        const tooltip = document.createElement('div');
-        tooltip.className = 'course-tooltip';
-        tooltip.textContent = c.description;
-        el.appendChild(tooltip);
-    }
 
     el.addEventListener('dragstart', handleDragStart);
     el.addEventListener('dragend', handleDragEnd);

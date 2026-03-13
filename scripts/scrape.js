@@ -40,17 +40,15 @@ async function fetchCourseDetails(code) {
         await delay(1000);
         const html = await fetchUQData(courseUrl);
 
-        const summaryMatch = html.match(/<p[^>]*id=["']course-summary["'][^>]*>([\s\S]*?)<\/p>/i);
         const prereqMatch = html.match(/<p[^>]*id=["']course-prerequisite["'][^>]*>([\s\S]*?)<\/p>/i);
 
-        const description = stripHtmlAndNormalize(summaryMatch ? summaryMatch[1] : null);
         const prereqText = stripHtmlAndNormalize(prereqMatch ? prereqMatch[1] : null) || '';
         const prereqs = Array.from(new Set(prereqText.match(/[A-Z]{4}\d{4}/g) || []));
 
-        return { description, prereqs };
+        return { prereqs };
     } catch (err) {
         console.warn(`Failed to fetch details for ${code}: ${err.message}`);
-        return { description: null, prereqs: [] };
+        return { prereqs: [] };
     }
 }
 
@@ -164,7 +162,7 @@ function updateDataJs(key, courses, content) {
         let str = `            { code: '${c.code}', name: '${c.name.replace(/'/g, "\\'")}', units: ${c.units}, cat: '${c.cat}'`;
         if (c.exclusiveWith) str += `, exclusiveWith: ${JSON.stringify(c.exclusiveWith)}`;
         if (c.isYearLong) str += `, isYearLong: true`;
-        if (c.description) str += `, description: '${c.description.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+
         if (c.prereqs && c.prereqs.length > 0) str += `, prereqs: ${JSON.stringify(c.prereqs)}`;
         str += ` }`;
         return str;
@@ -261,7 +259,6 @@ async function main() {
             const course = realCourses[i];
             const details = await fetchCourseDetails(course.code);
 
-            course.description = details.description;
             course.prereqs = (details.prereqs || []).filter(pr => existingCodes.has(pr));
 
             console.log(`Fetched details for ${course.code} (${i + 1}/${realCourses.length})`);
