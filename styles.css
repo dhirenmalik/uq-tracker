@@ -38,8 +38,8 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  border-radius: 0 !important;
-  box-shadow: none !important;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 body {
@@ -322,6 +322,82 @@ body {
   border-bottom-color: var(--text-primary);
 }
 
+.add-elective-toggle {
+  margin-top: 1rem;
+  background: var(--surface-color);
+  color: var(--text-primary);
+  border: 2px solid var(--border-color);
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  padding: 0.6rem 0.8rem;
+  width: 100%;
+  cursor: pointer;
+}
+
+.add-elective-toggle:hover {
+  background: var(--text-primary);
+  color: var(--surface-color);
+}
+
+.add-elective-form {
+  margin-top: 1rem;
+  border: 2px solid var(--border-color);
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.5rem;
+  background: var(--surface-color);
+}
+
+.add-elective-form.is-hidden {
+  display: none;
+}
+
+.add-elective-form label {
+  font-family: var(--font-body);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.add-elective-form input,
+.add-elective-form select {
+  background: var(--surface-color);
+  color: var(--text-primary);
+  border: 2px solid var(--border-color);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.5rem 0.65rem;
+  outline: none;
+}
+
+.add-elective-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.add-elective-btn {
+  background: var(--surface-color);
+  color: var(--text-primary);
+  border: 2px solid var(--border-color);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 0.5rem 0.6rem;
+  cursor: pointer;
+}
+
+.add-elective-btn:hover {
+  background: var(--text-primary);
+  color: var(--surface-color);
+}
+
 .course-list-container {
   flex: 1;
   overflow-y: auto;
@@ -353,12 +429,6 @@ body {
   color: var(--surface-color);
 }
 
-.course-card:hover .course-code,
-.course-card:hover .course-name,
-.course-card:hover .course-units {
-  color: var(--surface-color);
-}
-
 .course-card:active {
   cursor: grabbing;
 }
@@ -386,6 +456,27 @@ body {
   align-items: center;
 }
 
+.course-code-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.course-code-text {
+  min-width: 0;
+}
+
+.search-highlight {
+  background: var(--accent-color);
+  color: #fff;
+  padding: 0 2px;
+}
+
+.course-card:hover .search-highlight {
+  background: var(--surface-color);
+  color: var(--text-primary);
+}
+
 .course-link {
   font-family: var(--font-mono);
   font-size: 0.6rem;
@@ -409,6 +500,34 @@ body {
 }
 
 .course-card:hover .course-link:hover {
+  background: var(--surface-color);
+  color: var(--text-primary);
+}
+
+.custom-course-delete {
+  background: var(--surface-color);
+  color: var(--accent-color);
+  border: 1px solid var(--accent-color);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0.2rem 0.35rem;
+  cursor: pointer;
+}
+
+.custom-course-delete:hover {
+  background: var(--accent-color);
+  color: var(--surface-color);
+}
+
+.course-card:hover .custom-course-delete {
+  color: var(--surface-color);
+  border-color: var(--surface-color);
+  background: transparent;
+}
+
+.course-card:hover .custom-course-delete:hover {
   background: var(--surface-color);
   color: var(--text-primary);
 }
@@ -476,6 +595,12 @@ body {
   color: var(--text-primary);
 }
 
+.course-card:hover .course-code,
+.course-card:hover .course-name,
+.course-card:hover .course-units {
+  color: var(--surface-color);
+}
+
 .semesters-grid {
   flex: 1;
   padding: 0;
@@ -541,6 +666,25 @@ body {
 
 .semester-dropzone.drag-over {
   background-color: var(--accent-color);
+}
+
+.course-card.drop-indicator {
+  border-top: 2px solid var(--accent-color);
+}
+
+.course-card.prereq-highlight {
+  outline: 2px solid #10b981;
+  outline-offset: -2px;
+}
+
+.course-card.dependent-highlight {
+  outline: 2px solid var(--accent-color);
+  outline-offset: -2px;
+}
+
+.course-card.prereq-glow {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -2px;
 }
 
 .course-card.dragging {

@@ -76,6 +76,7 @@ let SEMESTERS = DEGREES[currentDegreeId].semesters;
 let state = {
     courses: [...COURSES],
     placements: {},
+    semesterOrder: {},
     activeFilter: 'All',
     searchQuery: ''
 };
@@ -85,6 +86,7 @@ const THEME_STORAGE_KEY = 'uq_tracker_theme';
 let history = [];
 let historyIndex = -1;
 let shareToastTimer = null;
+let dropIndicatorCard = null;
 const dom = {};
 
 // ============================================================
@@ -104,6 +106,7 @@ async function initApp() {
     dom.undoBtn = document.getElementById('undoBtn');
     dom.redoBtn = document.getElementById('redoBtn');
     dom.shareBtn = document.getElementById('shareBtn');
+    dom.exportBtn = document.getElementById('exportBtn');
     dom.themeToggleBtn = document.getElementById('themeToggleBtn');
     dom.unassignedList = document.getElementById('unassignedList');
     dom.semestersGrid = document.getElementById('semestersGrid');
@@ -111,6 +114,14 @@ async function initApp() {
     dom.loadingBar = document.getElementById('loadingBar');
     dom.loadingBarFill = document.getElementById('loadingBarFill');
     dom.loadingBarText = document.getElementById('loadingBarText');
+    dom.addElectiveToggleBtn = document.getElementById('addElectiveToggleBtn');
+    dom.addElectiveForm = document.getElementById('addElectiveForm');
+    dom.customCodeInput = document.getElementById('customCourseCode');
+    dom.customNameInput = document.getElementById('customCourseName');
+    dom.customUnitsInput = document.getElementById('customCourseUnits');
+    dom.cancelElectiveBtn = document.getElementById('cancelElectiveBtn');
+
+    loadCustomCoursesForCurrentDegree();
 
     if (dom.degreeSelect) {
         dom.degreeSelect.value = currentDegreeId;
@@ -138,6 +149,7 @@ async function initApp() {
     dom.resetBtn.addEventListener('click', () => {
         if (confirm("Are you sure you want to reset your plan?")) {
             state.placements = {};
+            state.semesterOrder = {};
             saveState();
             renderAll();
         }
@@ -146,11 +158,22 @@ async function initApp() {
     if (dom.undoBtn) dom.undoBtn.addEventListener('click', undo);
     if (dom.redoBtn) dom.redoBtn.addEventListener('click', redo);
     if (dom.shareBtn) dom.shareBtn.addEventListener('click', sharePlan);
+    if (dom.exportBtn) dom.exportBtn.addEventListener('click', exportPlan);
     if (dom.themeToggleBtn) {
         dom.themeToggleBtn.addEventListener('click', () => {
             const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
             setTheme(current === 'dark' ? 'light' : 'dark', true);
         });
+    }
+
+    if (dom.addElectiveToggleBtn) {
+        dom.addElectiveToggleBtn.addEventListener('click', showCustomElectiveForm);
+    }
+    if (dom.cancelElectiveBtn) {
+        dom.cancelElectiveBtn.addEventListener('click', hideCustomElectiveForm);
+    }
+    if (dom.addElectiveForm) {
+        dom.addElectiveForm.addEventListener('submit', handleCustomElectiveSubmit);
     }
 
     document.addEventListener('keydown', handleHistoryShortcuts);
@@ -202,7 +225,9 @@ function changeDegree(newDegreeId) {
     SEMESTERS = DEGREES[currentDegreeId].semesters;
 
     state.courses = [...COURSES];
+    loadCustomCoursesForCurrentDegree();
     state.placements = {};
+    state.semesterOrder = {};
     state.activeFilter = 'All';
     state.searchQuery = '';
     loadState();
@@ -218,12 +243,13 @@ function changeDegree(newDegreeId) {
 
 function renderFilters() {
     const container = document.getElementById('catFilters');
-    container.innerHTML = '<button class="filter-pill active" data-cat="All">All</button>';
+    const allActive = state.activeFilter === 'All' ? ' active' : '';
+    container.innerHTML = `<button class="filter-pill${allActive}" data-cat="All">All</button>`;
 
     const cats = [...new Set(state.courses.map(c => c.cat))];
     cats.forEach(cat => {
         const btn = document.createElement('button');
-        btn.className = 'filter-pill';
+        btn.className = `filter-pill${state.activeFilter === cat ? ' active' : ''}`;
         btn.dataset.cat = cat;
         btn.textContent = cat;
         container.appendChild(btn);
@@ -257,8 +283,10 @@ function loadState() {
                 REQUIREMENTS = DEGREES[currentDegreeId].requirements;
                 SEMESTERS = DEGREES[currentDegreeId].semesters;
                 state.courses = [...COURSES];
+                loadCustomCoursesForCurrentDegree();
             }
             state.placements = (hashState.placements && typeof hashState.placements === 'object') ? hashState.placements : {};
+            state.semesterOrder = (hashState.semesterOrder && typeof hashState.semesterOrder === 'object') ? hashState.semesterOrder : {};
             saveState();
             loadedFromHash = true;
         }
@@ -271,16 +299,27 @@ function loadState() {
     const saved = localStorage.getItem(`uq_tracker_state_${currentDegreeId}`);
     if (saved) {
         try {
-            state.placements = JSON.parse(saved);
+            const parsed = JSON.parse(saved);
+            if (parsed && typeof parsed === 'object' && parsed.placements) {
+                state.placements = parsed.placements;
+                state.semesterOrder = (parsed.semesterOrder && typeof parsed.semesterOrder === 'object') ? parsed.semesterOrder : {};
+            } else {
+                state.placements = parsed;
+                state.semesterOrder = {};
+            }
         } catch (e) {
         }
     } else {
         state.placements = {};
+        state.semesterOrder = {};
     }
 }
 
 function saveState() {
-    localStorage.setItem(`uq_tracker_state_${currentDegreeId}`, JSON.stringify(state.placements));
+    localStorage.setItem(`uq_tracker_state_${currentDegreeId}`, JSON.stringify({
+        placements: state.placements,
+        semesterOrder: state.semesterOrder
+    }));
     pushHistorySnapshot();
     updateHistoryControls();
 }
@@ -290,7 +329,10 @@ function saveState() {
 // ============================================================
 
 function clonePlacements() {
-    return JSON.parse(JSON.stringify(state.placements || {}));
+    return JSON.parse(JSON.stringify({
+        placements: state.placements || {},
+        semesterOrder: state.semesterOrder || {}
+    }));
 }
 
 function placementsEqual(a, b) {
@@ -324,8 +366,13 @@ function pushHistorySnapshot() {
 }
 
 function restoreHistorySnapshot(snapshot) {
-    state.placements = JSON.parse(JSON.stringify(snapshot || {}));
-    localStorage.setItem(`uq_tracker_state_${currentDegreeId}`, JSON.stringify(state.placements));
+    const safeSnapshot = snapshot || {};
+    state.placements = JSON.parse(JSON.stringify(safeSnapshot.placements || {}));
+    state.semesterOrder = JSON.parse(JSON.stringify(safeSnapshot.semesterOrder || {}));
+    localStorage.setItem(`uq_tracker_state_${currentDegreeId}`, JSON.stringify({
+        placements: state.placements,
+        semesterOrder: state.semesterOrder
+    }));
     renderAll();
     updateHistoryControls();
 }
@@ -375,7 +422,8 @@ function handleHistoryShortcuts(e) {
 function encodeStateForHash() {
     const payload = {
         degreeId: currentDegreeId,
-        placements: state.placements
+        placements: state.placements,
+        semesterOrder: state.semesterOrder
     };
     return btoa(encodeURIComponent(JSON.stringify(payload)));
 }
@@ -419,6 +467,49 @@ function showShareToast(message) {
         }
         shareToastTimer = null;
     }, 2000);
+}
+
+async function exportPlan() {
+    if (typeof html2canvas !== 'function' || !dom.semestersGrid) {
+        showShareToast('Export unavailable');
+        return;
+    }
+
+    try {
+        if (document.fonts && document.fonts.ready) {
+            await document.fonts.ready;
+        }
+
+        const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-color').trim() || '#ffffff';
+        const canvas = await html2canvas(dom.semestersGrid, {
+            scale: 2,
+            backgroundColor: bgColor,
+            useCORS: true,
+            logging: false
+        });
+
+        const blob = await new Promise(resolve => {
+            canvas.toBlob(resolve, 'image/png');
+        });
+
+        if (!blob) {
+            showShareToast('Export failed');
+            return;
+        }
+
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `degree-plan-${timestamp}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        showShareToast('Plan exported');
+    } catch (e) {
+        showShareToast('Export failed');
+    }
 }
 
 // ============================================================
@@ -484,9 +575,18 @@ function renderSemesters() {
             return placement === sem.id;
         });
 
+        const existingOrder = Array.isArray(state.semesterOrder[sem.id]) ? state.semesterOrder[sem.id] : [];
+        const orderedPlacedCodes = existingOrder.filter(code => placedCodes.includes(code));
+        placedCodes.forEach(code => {
+            if (!orderedPlacedCodes.includes(code)) {
+                orderedPlacedCodes.push(code);
+            }
+        });
+        state.semesterOrder[sem.id] = orderedPlacedCodes;
+
         let units = 0;
 
-        placedCodes.forEach(code => {
+        orderedPlacedCodes.forEach(code => {
             const cInfo = getCourseInfo(code);
             if (cInfo) {
                 const semUnits = cInfo.isYearLong ? (cInfo.units / 2) : cInfo.units;
@@ -530,9 +630,23 @@ function renderCatalog() {
         const matchSearch = c.code.toLowerCase().includes(state.searchQuery) || c.name.toLowerCase().includes(state.searchQuery);
 
         if (matchCat && matchSearch) {
-            dom.unassignedList.appendChild(createCourseCard(c));
+            const card = createCourseCard(c);
+            if (state.searchQuery) {
+                const codeEl = card.querySelector('.course-code-text');
+                const nameEl = card.querySelector('.course-name');
+                if (codeEl) codeEl.innerHTML = highlightSearchText(c.code, state.searchQuery);
+                if (nameEl) nameEl.innerHTML = highlightSearchText(c.name, state.searchQuery);
+            }
+            dom.unassignedList.appendChild(card);
         }
     });
+}
+
+function highlightSearchText(text, query) {
+    if (!query) return text;
+    const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${safeQuery})`, 'ig');
+    return String(text).replace(regex, '<mark class="search-highlight">$1</mark>');
 }
 
 function updateProgress() {
@@ -598,8 +712,15 @@ function createCourseCard(c) {
         ? `<a class="course-link" href="https://programs-courses.uq.edu.au/course.html?course_code=${c.code}" target="_blank" draggable="false">UQ&nbsp;PAGE&nbsp;&rarr;</a>`
         : '';
 
+    const deleteCustomHtml = c.isCustom
+        ? '<button class="custom-course-delete" type="button" draggable="false" aria-label="Delete custom elective">×</button>'
+        : '';
+
     el.innerHTML = `
-    <div class="course-code">${c.code}${linkHtml}</div>
+    <div class="course-code">
+      <span class="course-code-text">${c.code}</span>
+      <span class="course-code-actions">${linkHtml}${deleteCustomHtml}</span>
+    </div>
     <div class="course-name">${c.name}</div>
     ${excludesHtml}
     ${semsHtml}
@@ -611,6 +732,17 @@ function createCourseCard(c) {
 
     el.addEventListener('dragstart', handleDragStart);
     el.addEventListener('dragend', handleDragEnd);
+    el.addEventListener('mouseenter', handleCourseHoverEnter);
+    el.addEventListener('mouseleave', clearCourseHoverHighlights);
+
+    const deleteBtn = el.querySelector('.custom-course-delete');
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            removeCustomCourse(c.code);
+        });
+    }
 
     if (c.semesters) {
         updateCardSems(el, c.semesters);
@@ -622,6 +754,125 @@ function createCourseCard(c) {
     }
 
     return el;
+}
+
+function handleCourseHoverEnter() {
+    clearCourseHoverHighlights();
+
+    const code = this.dataset.code;
+    if (!code) return;
+
+    const info = getCourseInfo(code);
+    if (!info) return;
+
+    const prereqSet = new Set(Array.isArray(info.prereqs) ? info.prereqs : []);
+    const dependentSet = new Set(
+        state.courses
+            .filter(course => Array.isArray(course.prereqs) && course.prereqs.includes(code))
+            .map(course => course.code)
+    );
+
+    document.querySelectorAll('.course-card').forEach(card => {
+        const cardCode = card.dataset.code;
+        if (!cardCode) return;
+        if (prereqSet.has(cardCode)) card.classList.add('prereq-highlight');
+        if (dependentSet.has(cardCode)) card.classList.add('dependent-highlight');
+    });
+
+    this.classList.add('prereq-glow');
+}
+
+function clearCourseHoverHighlights() {
+    document.querySelectorAll('.course-card').forEach(card => {
+        card.classList.remove('prereq-highlight');
+        card.classList.remove('dependent-highlight');
+        card.classList.remove('prereq-glow');
+    });
+}
+
+function getCustomCoursesStorageKey() {
+    return `uq_tracker_custom_courses_${currentDegreeId}`;
+}
+
+function loadCustomCoursesForCurrentDegree() {
+    const saved = localStorage.getItem(getCustomCoursesStorageKey());
+    if (!saved) return;
+
+    try {
+        const customCourses = JSON.parse(saved);
+        if (!Array.isArray(customCourses)) return;
+        const existing = new Set(state.courses.map(course => course.code));
+        customCourses.forEach(course => {
+            if (course && course.code && !existing.has(course.code)) {
+                state.courses.push(course);
+                existing.add(course.code);
+            }
+        });
+    } catch (e) {
+    }
+}
+
+function saveCustomCoursesForCurrentDegree() {
+    const customCourses = state.courses.filter(course => course.isCustom === true);
+    localStorage.setItem(getCustomCoursesStorageKey(), JSON.stringify(customCourses));
+}
+
+function showCustomElectiveForm() {
+    if (!dom.addElectiveForm) return;
+    dom.addElectiveForm.classList.remove('is-hidden');
+    if (dom.customCodeInput) dom.customCodeInput.focus();
+}
+
+function hideCustomElectiveForm() {
+    if (!dom.addElectiveForm) return;
+    dom.addElectiveForm.classList.add('is-hidden');
+    dom.addElectiveForm.reset();
+}
+
+function handleCustomElectiveSubmit(e) {
+    e.preventDefault();
+
+    const rawCode = dom.customCodeInput ? dom.customCodeInput.value.trim() : '';
+    const rawName = dom.customNameInput ? dom.customNameInput.value.trim() : '';
+    const rawUnits = dom.customUnitsInput ? dom.customUnitsInput.value : '2';
+
+    const code = rawCode.toUpperCase();
+    const name = rawName;
+    const units = parseInt(rawUnits, 10);
+
+    if (!code || !name) {
+        alert('Please provide both code and name.');
+        return;
+    }
+
+    const exists = state.courses.some(course => course.code === code);
+    if (exists) {
+        alert(`Course ${code} already exists.`);
+        return;
+    }
+
+    state.courses.push({
+        code,
+        name,
+        units,
+        cat: 'Elective',
+        isCustom: true
+    });
+
+    saveCustomCoursesForCurrentDegree();
+    renderFilters();
+    renderCatalog();
+    hideCustomElectiveForm();
+}
+
+function removeCustomCourse(code) {
+    state.courses = state.courses.filter(course => course.code !== code);
+    delete state.placements[code];
+    removeCourseFromSemesterOrder(code);
+    saveCustomCoursesForCurrentDegree();
+    saveState();
+    renderFilters();
+    renderAll();
 }
 
 function updateCardSems(el, sems) {
@@ -682,11 +933,26 @@ function handleDragStart(e) {
 function handleDragEnd() {
     this.classList.remove('dragging');
     document.querySelectorAll('.semester-dropzone, #unassignedList').forEach(z => z.classList.remove('drag-over'));
+    clearDropIndicator();
 }
 
 function handleDragOver(e) {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+
+    if (!this.classList.contains('semester-dropzone')) {
+        clearDropIndicator();
+        return;
+    }
+
+    const beforeCard = getDropIndicatorCard(this, e.clientY);
+    if (dropIndicatorCard && dropIndicatorCard !== beforeCard) {
+        dropIndicatorCard.classList.remove('drop-indicator');
+    }
+    dropIndicatorCard = beforeCard;
+    if (dropIndicatorCard) {
+        dropIndicatorCard.classList.add('drop-indicator');
+    }
 }
 
 function handleDragEnter(e) {
@@ -700,6 +966,10 @@ function handleDragLeave() {
     if (this.classList.contains('semester-dropzone') || this.id === 'unassignedList') {
         this.classList.remove('drag-over');
     }
+
+    if (this.classList.contains('semester-dropzone')) {
+        clearDropIndicator();
+    }
 }
 
 function handleDrop(e) {
@@ -710,8 +980,31 @@ function handleDrop(e) {
     if (!code) return;
 
     const targetId = this.dataset.semester || this.id;
+    const targetSemesterId = targetId === 'unassignedList' ? null : targetId;
+    const beforeCard = this.classList.contains('semester-dropzone') ? getDropIndicatorCard(this, e.clientY) : null;
+    const beforeCode = beforeCard ? beforeCard.dataset.code : null;
 
     const courseInfo = getCourseInfo(code);
+    const previousPlacement = state.placements[code];
+    const sourceSemId = Array.isArray(previousPlacement)
+        ? (previousPlacement[0] || null)
+        : ((typeof previousPlacement === 'string' && previousPlacement !== 'unassigned') ? previousPlacement : null);
+
+    if (targetSemesterId && sourceSemId === targetSemesterId) {
+        const draggedEl = draggedCardId ? document.getElementById(draggedCardId) : null;
+        if (draggedEl && this.classList.contains('semester-dropzone')) {
+            if (beforeCard && beforeCard !== draggedEl) {
+                this.insertBefore(draggedEl, beforeCard);
+            } else if (!beforeCard) {
+                this.appendChild(draggedEl);
+            }
+        }
+        reorderCourseInSemester(targetSemesterId, code, beforeCode);
+        saveState();
+        renderAll();
+        clearDropIndicator();
+        return;
+    }
 
     if (targetId !== 'unassignedList') {
 
@@ -720,12 +1013,14 @@ function handleDrop(e) {
             if (!courseInfo.semesters) {
                 // Semester data hasn't loaded from API yet — block placement
                 alert(`Semester availability for ${code} is still loading. Please wait a moment and try again.`);
+                clearDropIndicator();
                 return;
             }
             // Crosscheck against the specific year the user is placing into
             const yearData = courseInfo.semesters[targetSem.year];
             if (yearData && yearData.length > 0 && !yearData.includes(targetSem.semNum)) {
                 alert(`Cannot add ${code} to ${targetSem.name}. In ${targetSem.year}, it is only available in: ${yearData.map(s => 'S' + s).join(', ')}.`);
+                clearDropIndicator();
                 return;
             }
         }
@@ -747,6 +1042,7 @@ function handleDrop(e) {
 
                 if (!prereqSatisfied) {
                     if (!confirm(`${code} has prerequisite ${prereqCode} which is not completed before ${targetSem.name}. Place anyway?`)) {
+                        clearDropIndicator();
                         return;
                     }
                 }
@@ -757,6 +1053,7 @@ function handleDrop(e) {
             for (const excl of courseInfo.exclusiveWith) {
                 if (state.placements[excl] && state.placements[excl] !== 'unassigned') {
                     if (!confirm(`${code} is mutually exclusive with ${excl}, which is already in your plan. Are you sure you want to add both?`)) {
+                        clearDropIndicator();
                         return;
                     }
                 }
@@ -766,22 +1063,93 @@ function handleDrop(e) {
 
     if (targetId === 'unassignedList') {
         state.placements[code] = 'unassigned';
+        removeCourseFromSemesterOrder(code);
     } else {
+        removeCourseFromSemesterOrder(code);
+
         if (courseInfo && courseInfo.isYearLong) {
             const currentSemIdx = SEMESTERS.findIndex(s => s.id === targetId);
 
             if (currentSemIdx + 1 < SEMESTERS.length) {
                 const nextSemId = SEMESTERS[currentSemIdx + 1].id;
                 state.placements[code] = [targetId, nextSemId];
+                insertCourseInSemesterOrder(targetId, code, beforeCode);
+                insertCourseInSemesterOrder(nextSemId, code, null);
             } else {
                 alert(`Cannot place ${code} here. As a year-long course, it requires a subsequent semester to complete Part 2.`);
+                clearDropIndicator();
                 return;
             }
         } else {
             state.placements[code] = targetId;
+            insertCourseInSemesterOrder(targetId, code, beforeCode);
         }
     }
 
     saveState();
     renderAll();
+    clearDropIndicator();
+}
+
+function getDropIndicatorCard(dropzone, clientY) {
+    const cards = [...dropzone.querySelectorAll('.course-card:not(.dragging)')];
+    for (const card of cards) {
+        const rect = card.getBoundingClientRect();
+        const midpoint = rect.top + rect.height / 2;
+        if (clientY < midpoint) return card;
+    }
+    return null;
+}
+
+function clearDropIndicator() {
+    if (dropIndicatorCard) {
+        dropIndicatorCard.classList.remove('drop-indicator');
+        dropIndicatorCard = null;
+    }
+}
+
+function removeCourseFromSemesterOrder(code) {
+    Object.keys(state.semesterOrder).forEach(semId => {
+        const order = Array.isArray(state.semesterOrder[semId]) ? state.semesterOrder[semId] : [];
+        state.semesterOrder[semId] = order.filter(item => item !== code);
+    });
+}
+
+function insertCourseInSemesterOrder(semesterId, code, beforeCode) {
+    if (!semesterId) return;
+    if (!Array.isArray(state.semesterOrder[semesterId])) {
+        state.semesterOrder[semesterId] = [];
+    }
+
+    const order = state.semesterOrder[semesterId].filter(item => item !== code);
+    if (beforeCode) {
+        const beforeIndex = order.indexOf(beforeCode);
+        if (beforeIndex >= 0) {
+            order.splice(beforeIndex, 0, code);
+        } else {
+            order.push(code);
+        }
+    } else {
+        order.push(code);
+    }
+    state.semesterOrder[semesterId] = order;
+}
+
+function reorderCourseInSemester(semesterId, code, beforeCode) {
+    if (!Array.isArray(state.semesterOrder[semesterId])) {
+        state.semesterOrder[semesterId] = [];
+    }
+
+    const order = state.semesterOrder[semesterId].filter(item => item !== code);
+    if (beforeCode) {
+        const beforeIndex = order.indexOf(beforeCode);
+        if (beforeIndex >= 0) {
+            order.splice(beforeIndex, 0, code);
+        } else {
+            order.push(code);
+        }
+    } else {
+        order.push(code);
+    }
+    state.semesterOrder[semesterId] = order;
 }

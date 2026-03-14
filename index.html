@@ -19,6 +19,7 @@
           <button id="undoBtn" class="premium-btn" type="button" disabled>Undo</button>
           <button id="redoBtn" class="premium-btn" type="button" disabled>Redo</button>
           <button id="shareBtn" class="premium-btn" type="button">Share Plan</button>
+          <button id="exportBtn" class="premium-btn header-btn" type="button">Export</button>
           <button id="themeToggleBtn" class="premium-btn" type="button">DARK</button>
         </div>
       </div>
@@ -42,6 +43,26 @@
           </div>
           <div class="cat-filters" id="catFilters">
           </div>
+          <button id="addElectiveToggleBtn" class="add-elective-toggle" type="button">ADD ELECTIVE</button>
+          <form id="addElectiveForm" class="add-elective-form is-hidden">
+            <label for="customCourseCode">CODE</label>
+            <input id="customCourseCode" name="customCourseCode" type="text" placeholder="e.g. PSYC1030" required />
+
+            <label for="customCourseName">NAME</label>
+            <input id="customCourseName" name="customCourseName" type="text" placeholder="Course Name" required />
+
+            <label for="customCourseUnits">UNITS</label>
+            <select id="customCourseUnits" name="customCourseUnits">
+              <option value="1">1</option>
+              <option value="2" selected>2</option>
+              <option value="4">4</option>
+            </select>
+
+            <div class="add-elective-actions">
+              <button type="submit" class="add-elective-btn">ADD</button>
+              <button type="button" id="cancelElectiveBtn" class="add-elective-btn">CANCEL</button>
+            </div>
+          </form>
         </div>
         <div class="course-list-container">
             <div class="course-list" id="unassignedList" data-semester="unassigned">
@@ -57,6 +78,7 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="data.js"></script>
   <script src="app.js"></script>
 </body>
