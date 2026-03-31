@@ -2,7 +2,7 @@
 
 Built this because there wasn't a reliable degree tracker that actually worked. It lets you map out 8 semesters, tracks prerequisites, and automatically calculates core and elective requirements so you don't have to. Currently only for Software engg w an AI minor, but planning to add more later.
 
-Live app: [uq-tracker.vercel.app](https://uq-tracker.vercel.app)
+Live app: [uqtracker.vercel.app](https://uqtracker.vercel.app)
 
 ## Features
 - **Drag & drop:** Move courses from the catalog straight into your semesters.
