@@ -1,85 +1,171 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
-  <title>UQ Semester Tracker | Software Engineering + AI Minor</title>
+  <title>UQ Semester Tracker</title>
   <link rel="stylesheet" href="styles.css">
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Space+Mono:wght@400;700&family=Zilla+Slab:wght@600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&display=swap"
+    rel="stylesheet">
 </head>
+
 <body>
-  <div class="app-container">
-    <header class="glass-header">
-      <div class="header-main">
-        <h1>UQ Semester Tracker</h1>
-        <select id="degreeSelect" class="degree-select">
-          <option value="se_ai">Software Engineering (AI Minor) — BE(Hons) 2024 to 2027</option>
-        </select>
-        <div class="header-actions">
-          <button id="resetBtn" class="premium-btn" type="button">Reset Plan</button>
-          <button id="undoBtn" class="premium-btn" type="button" disabled>Undo</button>
-          <button id="redoBtn" class="premium-btn" type="button" disabled>Redo</button>
-          <button id="shareBtn" class="premium-btn" type="button">Share Plan</button>
-          <button id="exportBtn" class="premium-btn header-btn" type="button">Export</button>
-          <button id="themeToggleBtn" class="premium-btn" type="button">DARK</button>
+
+  <div class="page-container">
+
+    <header class="site-header">
+      <h1 class="hero-title">UQ Tracker</h1>
+
+      <!-- Hidden original select for JS compatibility -->
+      <select id="degreeSelect" class="strict-select" style="display:none;">
+        <option value="se_ai">Software Engineering (AI Minor) — BE(Hons) 2024 to 2027</option>
+      </select>
+
+      <div class="degree-meta">
+        <div class="degree-field">
+          <span class="degree-field-label">Degree</span>
+          <span class="degree-field-value" id="degreeDegree">BE(Hons)</span>
+        </div>
+        <div class="degree-field">
+          <span class="degree-field-label">Major</span>
+          <span class="degree-field-value" id="degreeMajor">Software Engineering</span>
+        </div>
+        <div class="degree-field">
+          <span class="degree-field-label">Minor</span>
+          <span class="degree-field-value" id="degreeMinor">AI Minor</span>
+        </div>
+        <div class="degree-field">
+          <span class="degree-field-label">Years</span>
+          <span class="degree-field-value" id="degreeYears">2024 – 2027</span>
         </div>
       </div>
-      <div class="progress-dashboard" id="progressDashboard">
-        <!-- Progress widgets dynamically injected here -->
+
+      <div class="actions-rows" style="margin-top: 12px;">
+        <div class="actions-group">
+          <button id="resetBtn" class="strict-btn" type="button">Reset</button>
+          <button id="undoBtn" class="strict-btn" type="button" disabled>Undo</button>
+          <button id="redoBtn" class="strict-btn" type="button" disabled>Redo</button>
+        </div>
+        <div class="actions-group">
+          <button id="shareBtn" class="strict-btn" type="button">Share</button>
+          <button id="exportBtn" class="strict-btn" type="button">Export</button>
+          <button id="themeToggleBtn" class="strict-btn" type="button">Invert</button>
+        </div>
       </div>
+
+      <nav class="tab-list" id="navTabs" style="margin-top: 8px;">
+        <button id="tabBtnPlan" class="tab-item active" type="button">Plan</button>
+        <button id="tabBtnCourses" class="tab-item" type="button">Courses</button>
+      </nav>
     </header>
 
-    <div id="loadingBar" class="loading-bar">
-      <div class="loading-bar-fill" id="loadingBarFill"></div>
-      <span class="loading-bar-text" id="loadingBarText">LOADING SEMESTERS...</span>
-    </div>
+    <!-- Left Column: Always visible sidebar -->
+    <aside class="col-left">
 
-    <div class="main-content">
-      <!-- Course Catalog -->
-      <aside class="catalog-panel">
-        <div class="catalog-header">
-          <h2>Course Catalog</h2>
-          <div class="search-box">
-            <input type="text" id="courseSearch" placeholder="Search a course..." />
-          </div>
-          <div class="cat-filters" id="catFilters">
-          </div>
-          <button id="addElectiveToggleBtn" class="add-elective-toggle" type="button">ADD ELECTIVE</button>
-          <form id="addElectiveForm" class="add-elective-form is-hidden">
-            <label for="customCourseCode">CODE</label>
-            <input id="customCourseCode" name="customCourseCode" type="text" placeholder="e.g. PSYC1030" required />
+      <div class="sidebar-section">
+        <h2 class="section-label">PROGRESS</h2>
+        <div class="section-divider"></div>
+        <div class="progress-list" id="progressDashboard">
+          <!-- Progress injected here -->
+        </div>
+      </div>
 
-            <label for="customCourseName">NAME</label>
+      <div class="sidebar-section">
+        <h2 class="section-label">QUICK ADD</h2>
+        <div class="section-divider"></div>
+        <div class="search-box">
+          <input type="text" id="quickAddSearch" class="strict-input" placeholder="Search by course code or name..."
+            autocomplete="off" />
+          <div id="quickAddDropdown" class="quick-add-dropdown is-hidden"></div>
+        </div>
+      </div>
+
+      <div class="sidebar-section sidebar-section--grow">
+        <h2 class="section-label">SHORTLIST</h2>
+        <div class="section-divider"></div>
+        <div class="shortlist-container" id="shortlistContainer">
+          <!-- Shortlisted items injected here -->
+        </div>
+
+        <!-- Fallback element for drag compatibility, hidden -->
+        <div id="unassignedList" data-semester="unassigned" class="is-hidden"></div>
+      </div>
+
+    </aside>
+
+    <!-- Right Column: Switchable content -->
+    <main class="col-right">
+
+      <!-- PLAN PANEL -->
+      <div id="planContent" class="right-panel">
+        <div id="loadingBar" class="loading-state">
+          <span id="loadingBarText">Loading API Semesters...</span>
+          <div id="loadingBarFill" style="display:none;"></div>
+        </div>
+
+        <div class="semesters-grid" id="semestersGrid">
+          <!-- Semesters injected here -->
+        </div>
+      </div>
+
+      <!-- COURSES PANEL -->
+      <div id="coursesContent" class="right-panel is-hidden">
+
+        <div class="courses-header-bar">
+          <h2 class="section-label">Course Browser</h2>
+          <div class="section-divider"></div>
+
+          <div class="search-box" style="max-width: 600px;">
+            <input type="text" id="courseSearch" class="strict-input" placeholder="Search a course..." />
+            <span class="search-icon">↘</span>
+          </div>
+
+          <div class="filters-container" id="catFilters">
+            <!-- Filters injected here -->
+          </div>
+
+          <button id="addElectiveToggleBtn" class="strict-link" type="button">＋ Add Custom Elective</button>
+
+          <form id="addElectiveForm" class="strict-form is-hidden" style="max-width: 600px;">
+            <label for="customCourseCode">Code</label>
+            <input id="customCourseCode" name="customCourseCode" type="text" placeholder="e.g. COMP3301" required />
+
+            <label for="customCourseName">Name</label>
             <input id="customCourseName" name="customCourseName" type="text" placeholder="Course Name" required />
 
-            <label for="customCourseUnits">UNITS</label>
+            <label for="customCourseUnits">Units</label>
             <select id="customCourseUnits" name="customCourseUnits">
               <option value="1">1</option>
               <option value="2" selected>2</option>
               <option value="4">4</option>
             </select>
 
-            <div class="add-elective-actions">
-              <button type="submit" class="add-elective-btn">ADD</button>
-              <button type="button" id="cancelElectiveBtn" class="add-elective-btn">CANCEL</button>
+            <div class="form-actions">
+              <button type="submit" class="strict-btn">Add</button>
+              <button type="button" id="cancelElectiveBtn" class="strict-btn">Cancel</button>
             </div>
           </form>
         </div>
-        <div class="course-list-container">
-            <div class="course-list" id="unassignedList" data-semester="unassigned">
-            <!-- Draggable courses injected here -->
-            </div>
-        </div>
-      </aside>
 
-      <!-- Semesters Grid -->
-      <main class="semesters-grid" id="semestersGrid">
-        <!-- 8 Semesters initialized dynamically by JS -->
-      </main>
-    </div>
+        <div class="courses-grid" id="coursesGrid">
+          <!-- Full page courses injected here -->
+        </div>
+
+      </div>
+
+    </main>
+
+  </div>
+
+  <!-- Shared Semester Picker Popup -->
+  <div id="semesterPickerPopup" class="semester-picker-popup is-hidden">
+    <div class="picker-header">Add to semester</div>
+    <div class="picker-options" id="semesterPickerOptions"></div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="data.js"></script>
   <script src="app.js"></script>
 </body>
+
 </html>

@@ -15,6 +15,8 @@ async function ensureCourseSemesters(code) {
     // Query each year in parallel
     const fetches = years.map(async (y) => {
         try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
             const body = `search-term=${code}&semester=ALL&campus=ALL&faculty=ALL&type=ALL&days=1&days=2&days=3&days=4&days=5&days=6&days=0&start-time=00%3A00&end-time=23%3A00`;
             const res = await fetch(UQ_PLANNER_PROXY, {
                 method: 'POST',
@@ -23,8 +25,10 @@ async function ensureCourseSemesters(code) {
                     'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
                     'year': y.toString()
                 },
-                body
+                body,
+                signal: controller.signal
             });
+            clearTimeout(timeoutId);
             const data = await res.json();
             const sems = new Set();
             for (const key in data) {
@@ -78,7 +82,9 @@ let state = {
     placements: {},
     semesterOrder: {},
     activeFilter: 'All',
-    searchQuery: ''
+    searchQuery: '',
+    shortlist: [],
+    activeTab: 'plan'
 };
 
 const HISTORY_LIMIT = 50;
@@ -108,12 +114,27 @@ async function initApp() {
     dom.shareBtn = document.getElementById('shareBtn');
     dom.exportBtn = document.getElementById('exportBtn');
     dom.themeToggleBtn = document.getElementById('themeToggleBtn');
-    dom.unassignedList = document.getElementById('unassignedList');
+    
     dom.semestersGrid = document.getElementById('semestersGrid');
     dom.progressDashboard = document.getElementById('progressDashboard');
     dom.loadingBar = document.getElementById('loadingBar');
     dom.loadingBarFill = document.getElementById('loadingBarFill');
     dom.loadingBarText = document.getElementById('loadingBarText');
+    
+    dom.tabBtnPlan = document.getElementById('tabBtnPlan');
+    dom.tabBtnCourses = document.getElementById('tabBtnCourses');
+    dom.planContent = document.getElementById('planContent');
+    dom.coursesContent = document.getElementById('coursesContent');
+    
+    dom.quickAddSearch = document.getElementById('quickAddSearch');
+    dom.quickAddDropdown = document.getElementById('quickAddDropdown');
+    dom.shortlistContainer = document.getElementById('shortlistContainer');
+    dom.unassignedList = document.getElementById('unassignedList');
+    dom.coursesGrid = document.getElementById('coursesGrid');
+    
+    dom.semesterPickerPopup = document.getElementById('semesterPickerPopup');
+    dom.semesterPickerOptions = document.getElementById('semesterPickerOptions');
+
     dom.addElectiveToggleBtn = document.getElementById('addElectiveToggleBtn');
     dom.addElectiveForm = document.getElementById('addElectiveForm');
     dom.customCodeInput = document.getElementById('customCourseCode');
@@ -141,9 +162,30 @@ async function initApp() {
     updateHistoryControls();
     updateThemeToggleLabel();
 
-    dom.courseSearch.addEventListener('input', e => {
-        state.searchQuery = e.target.value.toLowerCase();
-        renderCatalog();
+    if (dom.tabBtnPlan) dom.tabBtnPlan.addEventListener('click', () => switchTab('plan'));
+    if (dom.tabBtnCourses) dom.tabBtnCourses.addEventListener('click', () => switchTab('courses'));
+
+    if (dom.courseSearch) {
+        dom.courseSearch.addEventListener('input', e => {
+            state.searchQuery = e.target.value.toLowerCase();
+            renderCoursesTab();
+        });
+    }
+    
+    if (dom.quickAddSearch) {
+        dom.quickAddSearch.addEventListener('input', handleQuickAddInput);
+        dom.quickAddSearch.addEventListener('focus', handleQuickAddInput);
+    }
+    
+    document.addEventListener('click', (e) => {
+        if (dom.quickAddSearch && !dom.quickAddSearch.contains(e.target) && !dom.quickAddDropdown.contains(e.target)) {
+            dom.quickAddDropdown.classList.add('is-hidden');
+        }
+        if (dom.semesterPickerPopup && !dom.semesterPickerPopup.classList.contains('is-hidden') && 
+            !e.target.closest('#semesterPickerPopup') && !e.target.closest('.add-to-plan-btn') && !e.target.closest('.dropdown-item')) {
+             dom.semesterPickerPopup.classList.add('is-hidden');
+             state.activePickerCourse = null;
+        }
     });
 
     dom.resetBtn.addEventListener('click', () => {
@@ -177,11 +219,26 @@ async function initApp() {
     }
 
     document.addEventListener('keydown', handleHistoryShortcuts);
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            if (dom.quickAddDropdown) dom.quickAddDropdown.classList.add('is-hidden');
+            if (dom.semesterPickerPopup) dom.semesterPickerPopup.classList.add('is-hidden');
+            state.activePickerCourse = null;
+        }
+    });
 
-    dom.unassignedList.addEventListener('dragover', handleDragOver);
-    dom.unassignedList.addEventListener('drop', handleDrop);
-    dom.unassignedList.addEventListener('dragenter', handleDragEnter);
-    dom.unassignedList.addEventListener('dragleave', handleDragLeave);
+    if (dom.unassignedList) {
+        dom.unassignedList.addEventListener('dragover', handleDragOver);
+        dom.unassignedList.addEventListener('drop', handleDrop);
+        dom.unassignedList.addEventListener('dragenter', handleDragEnter);
+        dom.unassignedList.addEventListener('dragleave', handleDragLeave);
+    }
+    if (dom.shortlistContainer) {
+        dom.shortlistContainer.addEventListener('dragover', handleDragOver);
+        dom.shortlistContainer.addEventListener('drop', handleDrop);
+        dom.shortlistContainer.addEventListener('dragenter', handleDragEnter);
+        dom.shortlistContainer.addEventListener('dragleave', handleDragLeave);
+    }
 
     const realCodes = state.courses
         .filter(c => /^[A-Z]{4}\d{4}$/.test(c.code))
@@ -195,6 +252,9 @@ async function initApp() {
             ensureCourseSemesters(code).then(sems => {
                 const cInfo = state.courses.find(c => c.code === code);
                 if (cInfo) cInfo.semesters = sems;
+            }).catch(err => {
+                console.warn(`Failed to load semesters for ${code}:`, err);
+            }).finally(() => {
                 completed++;
                 const pct = Math.round((completed / total) * 100);
                 if (dom.loadingBarFill) dom.loadingBarFill.style.width = pct + '%';
@@ -204,12 +264,13 @@ async function initApp() {
 
         await Promise.all(promises);
 
-        if (dom.loadingBar) dom.loadingBar.classList.add('hidden');
+        if (dom.loadingBar) dom.loadingBar.classList.add('is-hidden');
 
         renderSemesters();
-        renderCatalog();
+        renderCoursesTab();
+        renderShortlist();
     } else {
-        if (dom.loadingBar) dom.loadingBar.classList.add('hidden');
+        if (dom.loadingBar) dom.loadingBar.classList.add('is-hidden');
     }
 }
 
@@ -255,13 +316,28 @@ function renderFilters() {
         container.appendChild(btn);
     });
 
-    const filterBtns = document.querySelectorAll('.filter-pill');
+    // Add Shortlist filter pill
+    const wishlistBtn = document.createElement('button');
+    wishlistBtn.className = `filter-pill${state.activeFilter === 'Shortlist' ? ' active' : ''}`;
+    wishlistBtn.dataset.cat = 'Shortlist';
+    wishlistBtn.textContent = '★ Shortlist';
+    container.appendChild(wishlistBtn);
+
+    // Unified click handler for all filter pills (including Shortlist)
+    const filterBtns = container.querySelectorAll('.filter-pill');
     filterBtns.forEach(btn => {
         btn.addEventListener('click', () => {
+            const clickedCat = btn.dataset.cat;
+            // Toggle: if already active, go back to All
+            if (state.activeFilter === clickedCat && clickedCat !== 'All') {
+                state.activeFilter = 'All';
+            } else {
+                state.activeFilter = clickedCat;
+            }
             filterBtns.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            state.activeFilter = btn.dataset.cat;
-            renderCatalog();
+            const activePill = container.querySelector(`[data-cat="${state.activeFilter}"]`);
+            if (activePill) activePill.classList.add('active');
+            renderCoursesTab();
         });
     });
 }
@@ -303,22 +379,26 @@ function loadState() {
             if (parsed && typeof parsed === 'object' && parsed.placements) {
                 state.placements = parsed.placements;
                 state.semesterOrder = (parsed.semesterOrder && typeof parsed.semesterOrder === 'object') ? parsed.semesterOrder : {};
+                state.shortlist = Array.isArray(parsed.shortlist) ? parsed.shortlist : [];
             } else {
                 state.placements = parsed;
                 state.semesterOrder = {};
+                state.shortlist = [];
             }
         } catch (e) {
         }
     } else {
         state.placements = {};
         state.semesterOrder = {};
+        state.shortlist = [];
     }
 }
 
 function saveState() {
     localStorage.setItem(`uq_tracker_state_${currentDegreeId}`, JSON.stringify({
         placements: state.placements,
-        semesterOrder: state.semesterOrder
+        semesterOrder: state.semesterOrder,
+        shortlist: state.shortlist
     }));
     pushHistorySnapshot();
     updateHistoryControls();
@@ -480,6 +560,14 @@ async function exportPlan() {
             await document.fonts.ready;
         }
 
+        const wrapper = document.getElementById('planContent');
+        const oldOverflow = wrapper.style.overflow;
+        const oldWidth = dom.semestersGrid.style.width;
+        
+        // Let the grid expand fully to capture all semesters without scrolling bounds
+        wrapper.style.overflow = 'visible';
+        dom.semestersGrid.style.width = 'max-content';
+
         const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-color').trim() || '#ffffff';
         const canvas = await html2canvas(dom.semestersGrid, {
             scale: 2,
@@ -487,6 +575,9 @@ async function exportPlan() {
             useCORS: true,
             logging: false
         });
+
+        wrapper.style.overflow = oldOverflow;
+        dom.semestersGrid.style.width = oldWidth;
 
         const blob = await new Promise(resolve => {
             canvas.toBlob(resolve, 'image/png');
@@ -519,7 +610,7 @@ async function exportPlan() {
 function detectInitialTheme() {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
     if (stored === 'dark' || stored === 'light') return stored;
-    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    return 'light';
 }
 
 function setTheme(theme, persist) {
@@ -548,7 +639,7 @@ function renderSemesters() {
 
     SEMESTERS.forEach(sem => {
         const box = document.createElement('div');
-        box.className = 'semester-box';
+        box.className = 'semester-col';
 
         const header = document.createElement('div');
         header.className = 'semester-header';
@@ -593,10 +684,11 @@ function renderSemesters() {
                 units += semUnits;
 
                 const card = createCourseCard(cInfo);
+                card.classList.add('inverted'); // Added to plan
 
                 if (cInfo.isYearLong && Array.isArray(state.placements[code])) {
                     if (state.placements[code][1] === sem.id) {
-                        card.querySelector('.course-name').innerHTML += ' <span style="color: var(--accent-color); font-weight: bold;">(Part 2)</span>';
+                        card.querySelector('.course-name').innerHTML += ' <span style="font-weight: 500;">(Part 2)</span>';
                         card.draggable = false;
                         card.style.opacity = '0.7';
                         card.style.cursor = 'default';
@@ -612,7 +704,7 @@ function renderSemesters() {
         });
 
         header.querySelector('.semester-units').textContent = `${units} / 8 units`;
-        if (units > 8) header.querySelector('.semester-units').style.color = '#ef4444';
+        if (units > 8) header.querySelector('.semester-units').style.fontWeight = '700';
 
         box.appendChild(header);
         box.appendChild(dropzone);
@@ -620,26 +712,274 @@ function renderSemesters() {
     });
 }
 
-function renderCatalog() {
-    dom.unassignedList.innerHTML = '';
+function switchTab(tabId) {
+    state.activeTab = tabId;
+    if (tabId === 'plan') {
+        dom.tabBtnPlan.classList.add('active');
+        dom.tabBtnCourses.classList.remove('active');
+        if (dom.planContent) dom.planContent.classList.remove('is-hidden');
+        if (dom.coursesContent) dom.coursesContent.classList.add('is-hidden');
+    } else {
+        dom.tabBtnCourses.classList.add('active');
+        dom.tabBtnPlan.classList.remove('active');
+        if (dom.coursesContent) dom.coursesContent.classList.remove('is-hidden');
+        if (dom.planContent) dom.planContent.classList.add('is-hidden');
+        renderCoursesTab();
+    }
+}
+
+function renderCoursesTab() {
+    if (!dom.coursesGrid) return;
+    dom.coursesGrid.innerHTML = '';
 
     state.courses.forEach(c => {
-        if (state.placements[c.code] && state.placements[c.code] !== 'unassigned') return;
-
-        const matchCat = state.activeFilter === 'All' || c.cat === state.activeFilter;
-        const matchSearch = c.code.toLowerCase().includes(state.searchQuery) || c.name.toLowerCase().includes(state.searchQuery);
-
-        if (matchCat && matchSearch) {
-            const card = createCourseCard(c);
-            if (state.searchQuery) {
-                const codeEl = card.querySelector('.course-code-text');
-                const nameEl = card.querySelector('.course-name');
-                if (codeEl) codeEl.innerHTML = highlightSearchText(c.code, state.searchQuery);
-                if (nameEl) nameEl.innerHTML = highlightSearchText(c.name, state.searchQuery);
-            }
-            dom.unassignedList.appendChild(card);
+        // Handle shortlist filter — exclude courses already in the plan
+        if (state.activeFilter === 'Shortlist') {
+            const inPlan = !!state.placements[c.code] && state.placements[c.code] !== 'unassigned';
+            if (!state.shortlist.includes(c.code) || inPlan) return;
+        } else {
+            const matchCat = state.activeFilter === 'All' || c.cat === state.activeFilter;
+            if (!matchCat) return;
         }
+        const matchSearch = c.code.toLowerCase().includes(state.searchQuery) || c.name.toLowerCase().includes(state.searchQuery);
+        if (!matchSearch) return;
+
+        const card = createCourseCard(c);
+        card.draggable = false;
+        
+        if (state.searchQuery) {
+            const codeEl = card.querySelector('.course-code-text');
+            const nameEl = card.querySelector('.course-name');
+            if (codeEl) codeEl.innerHTML = highlightSearchText(c.code, state.searchQuery);
+            if (nameEl) nameEl.innerHTML = highlightSearchText(c.name, state.searchQuery);
+        }
+        
+        const actionsDiv = card.querySelector('.card-actions');
+        if (actionsDiv) {
+            const inPlan = !!state.placements[c.code] && state.placements[c.code] !== 'unassigned';
+            const isShortlisted = state.shortlist.includes(c.code);
+            
+            if (inPlan) {
+                const btnRemove = `<button type="button" class="strict-btn btn-remove-plan" style="grid-column: 1 / -1;" data-code="${c.code}">− Remove from Plan</button>`;
+                actionsDiv.innerHTML = `${btnRemove}`;
+                const elRemove = actionsDiv.querySelector('.btn-remove-plan');
+                if (elRemove) elRemove.addEventListener('click', () => removeFromPlan(c.code));
+            } else {
+                let btnShortlist = isShortlisted 
+                    ? `<button type="button" class="strict-btn inverted" style="cursor:default;" disabled>Shortlisted ✓</button>`
+                    : `<button type="button" class="strict-btn btn-shortlist" data-code="${c.code}">+ Shortlist</button>`;
+                const btnAdd = `<button type="button" class="strict-btn add-to-plan-btn" data-code="${c.code}">+ Add to Plan →</button>`;
+                actionsDiv.innerHTML = `${btnShortlist}${btnAdd}`;
+                
+                const elShortlist = actionsDiv.querySelector('.btn-shortlist');
+                if (elShortlist) elShortlist.addEventListener('click', () => addToShortlist(c.code));
+                const elAdd = actionsDiv.querySelector('.add-to-plan-btn');
+                if (elAdd) elAdd.addEventListener('click', (e) => showSemesterPicker(c.code, e.target));
+            }
+        }
+        dom.coursesGrid.appendChild(card);
     });
+}
+
+function addToShortlist(code) {
+    if (!state.shortlist.includes(code)) {
+        state.shortlist.push(code);
+        saveState();
+        renderCoursesTab();
+        renderShortlist();
+    }
+}
+
+function removeFromShortlist(code) {
+    state.shortlist = state.shortlist.filter(c => c !== code);
+    saveState();
+    renderCoursesTab();
+    renderShortlist();
+}
+
+function renderShortlist() {
+    if (!dom.shortlistContainer) return;
+    dom.shortlistContainer.innerHTML = '';
+    
+    // Filter out items that are already placed
+    const validShortlist = state.shortlist.filter(code => {
+        return !(state.placements[code] && state.placements[code] !== 'unassigned');
+    });
+    
+    if (validShortlist.length === 0) {
+        dom.shortlistContainer.innerHTML = `<div class="empty-placeholder">— no courses shortlisted</div>`;
+        return;
+    }
+    
+    validShortlist.forEach(code => {
+        const cInfo = getCourseInfo(code);
+        if (!cInfo) return;
+        
+        const el = document.createElement('div');
+        el.className = 'shortlist-item';
+        el.draggable = true;
+        el.id = 'shortlist-' + cInfo.code;
+        el.dataset.code = cInfo.code;
+        
+        el.innerHTML = `
+            <span class="shortlist-handle">⠿</span>
+            <span style="font-weight: 500;">${cInfo.code}</span>
+            <span style="font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; margin: 0 8px;">${cInfo.name}</span>
+            <button class="shortlist-remove" title="Remove" data-code="${cInfo.code}">×</button>
+        `;
+        
+        el.querySelector('.shortlist-remove').addEventListener('click', () => removeFromShortlist(cInfo.code));
+        el.addEventListener('dragstart', handleDragStart);
+        el.addEventListener('dragend', handleDragEnd);
+        
+        dom.shortlistContainer.appendChild(el);
+    });
+}
+
+function handleQuickAddInput(e) {
+    const query = e.target.value.toLowerCase().trim();
+    if (!query) {
+        dom.quickAddDropdown.classList.add('is-hidden');
+        return;
+    }
+    
+    dom.quickAddDropdown.innerHTML = '';
+    let matches = 0;
+    
+    for (const c of state.courses) {
+        if (state.placements[c.code] && state.placements[c.code] !== 'unassigned') continue;
+        
+        if (c.code.toLowerCase().includes(query) || c.name.toLowerCase().includes(query)) {
+            matches++;
+            const item = document.createElement('div');
+            item.className = 'dropdown-item';
+            
+            const codeHTML = highlightSearchText(c.code, query);
+            const nameHTML = highlightSearchText(c.name, query);
+            
+            item.innerHTML = `
+                <div><span style="font-weight: 500;">${codeHTML}</span> <span style="font-size: 12px; margin-left:8px;">${nameHTML}</span></div>
+                <div style="font-size: 16px; font-weight: 500;">+</div>
+            `;
+            
+            item.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                showSemesterPicker(c.code, dom.quickAddSearch);
+                dom.quickAddDropdown.classList.add('is-hidden');
+                dom.quickAddSearch.value = '';
+            });
+            
+            dom.quickAddDropdown.appendChild(item);
+            if (matches >= 6) break;
+        }
+    }
+    
+    if (matches > 0) {
+        dom.quickAddDropdown.classList.remove('is-hidden');
+    } else {
+        dom.quickAddDropdown.classList.add('is-hidden');
+    }
+}
+
+function showSemesterPicker(code, anchorEl) {
+    state.activePickerCourse = code;
+    const cInfo = getCourseInfo(code);
+    if (!cInfo) return;
+
+    dom.semesterPickerOptions.innerHTML = '';
+    
+    // Position picker
+    const rect = anchorEl.getBoundingClientRect();
+    dom.semesterPickerPopup.style.top = (rect.bottom + window.scrollY + 8) + 'px';
+    let left = rect.left + window.scrollX;
+    if (left + 300 > window.innerWidth) {
+        left = window.innerWidth - 320;
+    }
+    dom.semesterPickerPopup.style.left = Math.max(8, left) + 'px';
+    
+    // Group semesters by year
+    const years = [...new Set(SEMESTERS.map(s => s.year))].sort();
+    
+    years.forEach(year => {
+        const yearSems = SEMESTERS.filter(s => s.year === year);
+        
+        const row = document.createElement('div');
+        row.className = 'picker-year-row';
+        
+        const yearLabel = document.createElement('div');
+        yearLabel.className = 'picker-year-label';
+        yearLabel.textContent = year;
+        row.appendChild(yearLabel);
+        
+        const btnsWrap = document.createElement('div');
+        btnsWrap.className = 'picker-year-btns';
+        
+        yearSems.forEach(sem => {
+            const placedCodes = Object.keys(state.placements).filter(c => {
+                const placement = state.placements[c];
+                if (Array.isArray(placement)) return placement.includes(sem.id);
+                return placement === sem.id;
+            });
+            
+            let units = 0;
+            placedCodes.forEach(pc => {
+                const inf = getCourseInfo(pc);
+                if (inf) units += inf.isYearLong ? (inf.units / 2) : inf.units;
+            });
+            
+            const alreadyAdded = placedCodes.includes(code);
+            const isFull = units >= 8;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'strict-btn';
+            
+            if (alreadyAdded) {
+                btn.textContent = `S${sem.semNum} — added`;
+                btn.disabled = true;
+                btn.style.color = 'var(--disabled-color)';
+                btn.style.borderColor = 'var(--disabled-color)';
+            } else if (isFull) {
+                btn.textContent = `S${sem.semNum} (Full)`;
+                btn.disabled = true;
+                btn.style.color = 'var(--disabled-color)';
+                btn.style.borderColor = 'var(--disabled-color)';
+            } else {
+                btn.textContent = `S${sem.semNum}`;
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    
+                    if (cInfo.isYearLong) {
+                        const idx = SEMESTERS.findIndex(s => s.id === sem.id);
+                        if (idx + 1 < SEMESTERS.length) {
+                            const nextSem = SEMESTERS[idx + 1];
+                            state.placements[code] = [sem.id, nextSem.id];
+                            insertCourseInSemesterOrder(sem.id, code, null);
+                            insertCourseInSemesterOrder(nextSem.id, code, null);
+                        } else {
+                            alert("Part 2 requires another semester after this one.");
+                            return;
+                        }
+                    } else {
+                        state.placements[code] = sem.id;
+                        insertCourseInSemesterOrder(sem.id, code, null);
+                    }
+                    
+                    removeFromShortlist(code);
+                    saveState();
+                    renderAll();
+                    dom.semesterPickerPopup.classList.add('is-hidden');
+                    state.activePickerCourse = null;
+                });
+            }
+            
+            btnsWrap.appendChild(btn);
+        });
+        
+        row.appendChild(btnsWrap);
+        dom.semesterPickerOptions.appendChild(row);
+    });
+    
+    dom.semesterPickerPopup.classList.remove('is-hidden');
 }
 
 function highlightSearchText(text, query) {
@@ -663,17 +1003,10 @@ function updateProgress() {
         const percentage = Math.min(100, Math.round((sum / req.target) * 100));
 
         const widget = document.createElement('div');
-        widget.className = 'progress-widget';
+        widget.className = 'progress-item';
         widget.innerHTML = `
-      <div class="progress-header">
-        <span class="progress-title">${req.name}</span>
-        <span class="progress-counts">
-           <span style="color: ${sum >= req.target ? '#10b981' : 'var(--text-primary)'}">${sum}</span> / ${req.target} U
-        </span>
-      </div>
-      <div class="progress-bar-bg">
-        <div class="progress-bar-fill" style="width: ${percentage}%; background: ${req.color}"></div>
-      </div>
+      <div class="progress-item-title">${req.name}</div>
+      <div class="progress-item-fraction">${sum} / ${req.target} U</div>
     `;
         dom.progressDashboard.appendChild(widget);
     });
@@ -685,7 +1018,8 @@ function getCourseInfo(code) {
 
 function renderAll() {
     renderSemesters();
-    renderCatalog();
+    renderCoursesTab();
+    renderShortlist();
     updateProgress();
 }
 
@@ -699,9 +1033,8 @@ function createCourseCard(c) {
     el.draggable = true;
     el.id = 'card-' + c.code;
     el.dataset.code = c.code;
-    el.style.setProperty('--bg-indicator', CAT_COLORS[c.cat] || '#ffffff');
 
-    const excludesHtml = c.exclusiveWith
+    const excludesHtml = (c.exclusiveWith && c.exclusiveWith.length > 0)
         ? `<div class="course-excludes">Excludes: ${c.exclusiveWith.join(', ')}</div>`
         : '';
 
@@ -709,25 +1042,34 @@ function createCourseCard(c) {
 
     const isRealCourse = /^[A-Z]{4}\d{4}$/.test(c.code);
     const linkHtml = isRealCourse
-        ? `<a class="course-link" href="https://programs-courses.uq.edu.au/course.html?course_code=${c.code}" target="_blank" draggable="false">UQ&nbsp;PAGE&nbsp;&rarr;</a>`
+        ? `<a class="course-link" href="https://programs-courses.uq.edu.au/course.html?course_code=${c.code}" target="_blank" draggable="false">Page ↗</a>`
         : '';
 
     const deleteCustomHtml = c.isCustom
         ? '<button class="custom-course-delete" type="button" draggable="false" aria-label="Delete custom elective">×</button>'
         : '';
 
+    const isRequired = c.cat === 'Core' || c.cat === 'Required';
+    const markerHtml = `<div class="course-marker ${isRequired ? 'required' : ''}"></div>`;
+
     el.innerHTML = `
-    <div class="course-code">
-      <span class="course-code-text">${c.code}</span>
+    <div class="course-header">
+      <div class="course-meta-left">
+        ${markerHtml}
+        <strong class="course-code-text">${c.code}</strong>
+        <span class="course-tag top-tag">${c.cat}</span>
+        <span class="course-tag top-tag course-units">${c.units} U</span>
+      </div>
       <span class="course-code-actions">${linkHtml}${deleteCustomHtml}</span>
     </div>
-    <div class="course-name">${c.name}</div>
+    <div class="course-name" title="${c.name}">${c.name}</div>
     ${excludesHtml}
-    ${semsHtml}
-    <div class="course-meta">
-      <span class="course-cat">${c.cat}</span>
-      <span class="course-units">${c.units} U</span>
+    <div class="course-meta-bottom">
+      <span class="course-tag">${c.cat}</span>
+      <span class="course-tag course-units">${c.units} U</span>
     </div>
+    <button type="button" class="planner-remove-btn" draggable="false" aria-label="Remove from plan">Remove</button>
+    <div class="card-actions" id="actions-${c.code}"></div>
   `;
 
     el.addEventListener('dragstart', handleDragStart);
@@ -741,6 +1083,15 @@ function createCourseCard(c) {
             e.preventDefault();
             e.stopPropagation();
             removeCustomCourse(c.code);
+        });
+    }
+    
+    const removeBtn = el.querySelector('.planner-remove-btn');
+    if (removeBtn) {
+        removeBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            removeFromPlan(c.code);
         });
     }
 
@@ -861,7 +1212,7 @@ function handleCustomElectiveSubmit(e) {
 
     saveCustomCoursesForCurrentDegree();
     renderFilters();
-    renderCatalog();
+    renderCoursesTab();
     hideCustomElectiveForm();
 }
 
@@ -876,45 +1227,15 @@ function removeCustomCourse(code) {
 }
 
 function updateCardSems(el, sems) {
-    const infoEl = el.querySelector('.sem-info');
-    if (!infoEl) return;
+    // Disabled intentionally: availability text removed from design
+}
 
-    const code = el.dataset.code;
-    const placement = code ? state.placements[code] : null;
-    const isPlaced = !!placement && placement !== 'unassigned';
-
-    infoEl.className = 'sem-info';
-
-    if (sems && typeof sems === 'object') {
-        const years = Object.keys(sems).sort();
-
-        if (isPlaced) {
-            const yearly = years
-                .filter(y => Array.isArray(sems[y]) && sems[y].length > 0)
-                .map(y => `${String(y).slice(-2)}: ${sems[y].map(s => 'S' + s).join(',')}`)
-                .join(' | ');
-
-            if (yearly) {
-                infoEl.textContent = yearly;
-                infoEl.classList.add('sem-info--placed');
-                return;
-            }
-        }
-
-        const allSems = new Set();
-        for (const y of years) {
-            if (sems[y]) sems[y].forEach(s => allSems.add(s));
-        }
-
-        if (allSems.size > 0) {
-            const sorted = Array.from(allSems).sort();
-            infoEl.textContent = `Offered: ${sorted.map(s => 'S' + s).join(', ')}`;
-            return;
-        }
-    }
-
-    infoEl.textContent = 'Semesters Unknown';
-    infoEl.classList.add('sem-info--unknown');
+function removeFromPlan(code) {
+    if (!state.placements[code] || state.placements[code] === 'unassigned') return;
+    state.placements[code] = 'unassigned';
+    removeCourseFromSemesterOrder(code);
+    saveState();
+    renderAll();
 }
 
 // ============================================================
@@ -980,7 +1301,8 @@ function handleDrop(e) {
     if (!code) return;
 
     const targetId = this.dataset.semester || this.id;
-    const targetSemesterId = targetId === 'unassignedList' ? null : targetId;
+    const isRemovalZone = targetId === 'unassignedList' || targetId === 'shortlistContainer';
+    const targetSemesterId = isRemovalZone ? null : targetId;
     const beforeCard = this.classList.contains('semester-dropzone') ? getDropIndicatorCard(this, e.clientY) : null;
     const beforeCode = beforeCard ? beforeCard.dataset.code : null;
 
@@ -1006,8 +1328,7 @@ function handleDrop(e) {
         return;
     }
 
-    if (targetId !== 'unassignedList') {
-
+    if (!isRemovalZone) {
         const targetSem = SEMESTERS.find(s => s.id === targetId);
         if (courseInfo && targetSem) {
             if (!courseInfo.semesters) {
@@ -1061,9 +1382,12 @@ function handleDrop(e) {
         }
     }
 
-    if (targetId === 'unassignedList') {
+    if (isRemovalZone) {
         state.placements[code] = 'unassigned';
         removeCourseFromSemesterOrder(code);
+        if (targetId === 'shortlistContainer') {
+            if (!state.shortlist.includes(code)) state.shortlist.push(code);
+        }
     } else {
         removeCourseFromSemesterOrder(code);
 
