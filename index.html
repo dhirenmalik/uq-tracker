@@ -10,33 +10,57 @@
 </head>
 
 <body>
+  <!-- ONBOARDING OVERLAY -->
+  <div id="onboardingScreen">
+    <div class="onboarding-card">
+      <h1 class="onboarding-title">Welcome to UQ Tracker</h1>
+      <p class="onboarding-subtitle">Select your program to load your dynamic degree planner.</p>
+      
+      <div class="onboarding-fields">
+        <div class="onboarding-field">
+          <label>PROGRAM</label>
+          <select id="selProgram" class="meta-select"></select>
+        </div>
+        <div class="onboarding-field">
+          <label>MAJOR</label>
+          <select id="selMajor" class="meta-select"></select>
+        </div>
+        <div class="onboarding-field">
+          <label>MINOR</label>
+          <select id="selMinor" class="meta-select"></select>
+        </div>
+        <div class="onboarding-field">
+          <label>START YEAR</label>
+          <select id="selYear" class="meta-select"></select>
+        </div>
+      </div>
+      
+      
+      <button id="startPlanningBtn" class="primary-btn">Start Planning</button>
+      
+      <!-- Loading UI for live scraper -->
+      <div id="scraperLoadingUI" class="is-hidden" style="display:none; flex-direction:column; gap:8px; margin-top:16px;">
+        <span id="scraperStatus" class="onboarding-subtitle" style="margin:0; font-size:12px;">Fetching from UQ API...</span>
+        <div class="progress-bar-container">
+          <div class="progress-bar" id="scraperProgressBar" style="width: 0%; background: var(--accent-color);"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-  <div class="page-container">
+  <div id="appContainer" class="page-container">
 
     <header class="site-header">
       <h1 class="hero-title">UQ Tracker</h1>
 
       <!-- Hidden original select for JS compatibility -->
-      <select id="degreeSelect" class="strict-select" style="display:none;">
-        <option value="se_ai">Software Engineering (AI Minor) — BE(Hons) 2024 to 2027</option>
-      </select>
+      <select id="degreeSelect" class="strict-select" style="display:none;"></select>
 
       <div class="degree-meta">
         <div class="degree-field">
-          <span class="degree-field-label">Degree</span>
-          <span class="degree-field-value" id="degreeDegree">BE(Hons)</span>
-        </div>
-        <div class="degree-field">
-          <span class="degree-field-label">Major</span>
-          <span class="degree-field-value" id="degreeMajor">Software Engineering</span>
-        </div>
-        <div class="degree-field">
-          <span class="degree-field-label">Minor</span>
-          <span class="degree-field-value" id="degreeMinor">AI Minor</span>
-        </div>
-        <div class="degree-field">
-          <span class="degree-field-label">Years</span>
-          <span class="degree-field-value" id="degreeYears">2024 – 2027</span>
+          <span class="degree-field-label">PROGRAM PATH</span>
+          <span class="degree-field-value" id="dispDegreeTitle">Loading...</span>
+          <span class="degree-field-label" id="dispDegreeYear" style="margin-top:2px;"></span>
         </div>
       </div>
 
@@ -49,7 +73,7 @@
         <div class="actions-group">
           <button id="shareBtn" class="strict-btn" type="button">Share</button>
           <button id="exportBtn" class="strict-btn" type="button">Export</button>
-          <button id="themeToggleBtn" class="strict-btn" type="button">Invert</button>
+          <button id="changeDegreeBtn" class="strict-btn" type="button">Change</button>
         </div>
       </div>
 
@@ -165,6 +189,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="data.js"></script>
+  <script src="scraper.js"></script>
   <script src="app.js"></script>
 </body>
 

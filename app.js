@@ -71,11 +71,23 @@ async function ensureCourseSemesters(code) {
 // STATE
 // ============================================================
 
+const cachedDegrees = localStorage.getItem('uq_tracker_cached_degrees');
+if (cachedDegrees) {
+    try { DEGREES = JSON.parse(cachedDegrees); } catch(e) {}
+}
+
 let currentDegreeId = localStorage.getItem('uq_tracker_degree');
-if (!currentDegreeId || !DEGREES[currentDegreeId]) currentDegreeId = 'se_ai';
-let COURSES = DEGREES[currentDegreeId].courses;
-let REQUIREMENTS = DEGREES[currentDegreeId].requirements;
-let SEMESTERS = DEGREES[currentDegreeId].semesters;
+let COURSES = [];
+let REQUIREMENTS = [];
+let SEMESTERS = [];
+
+if (currentDegreeId && DEGREES[currentDegreeId]) {
+    COURSES = DEGREES[currentDegreeId].courses;
+    REQUIREMENTS = DEGREES[currentDegreeId].requirements;
+    SEMESTERS = DEGREES[currentDegreeId].semesters;
+} else {
+    currentDegreeId = null;
+}
 
 let state = {
     courses: [...COURSES],
@@ -99,39 +111,202 @@ const dom = {};
 // INIT
 // ============================================================
 
-document.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', () => {
+    // If no degree is set perfectly in localStorage, show onboarding
+    const stored = localStorage.getItem('uq_tracker_degree');
+    if (!stored || !DEGREES[stored]) {
+        document.getElementById('onboardingScreen').classList.remove('hidden');
+    } else {
+        document.getElementById('onboardingScreen').classList.add('hidden');
+    }
     initApp();
+    updateUIDegreeTitles();
 });
+
+// ============================================================
+// CASCADING UI LOGIC
+// ============================================================
+
+window.refreshCascadingDropdowns = null;
+
+function initCascadingDropdowns() {
+    if (!dom.selProgram || !dom.selMajor || !dom.selMinor || !dom.selYear) return;
+
+    function populateFromMap(selectEl, arrayConfig, currentId) {
+        selectEl.innerHTML = '';
+        if (!arrayConfig || !arrayConfig.length) return;
+        
+        let found = false;
+        arrayConfig.forEach(item => {
+            const opt = document.createElement('option');
+            let id = item.id !== undefined ? item.id : item;
+            let label = item.label !== undefined ? item.label : item;
+            opt.value = id;
+            opt.textContent = label;
+            if (id.toString() === (currentId || '').toString()) {
+                opt.selected = true;
+                found = true;
+            }
+            selectEl.appendChild(opt);
+        });
+        
+        if (!found && selectEl.options.length > 0) {
+            selectEl.options[0].selected = true;
+        }
+    }
+
+    window.refreshCascadingDropdowns = function() {
+        populateFromMap(dom.selProgram, UQ_OPTIONS.programs, dom.selProgram.value);
+        const selProg = dom.selProgram.value || UQ_OPTIONS.programs[0].id;
+
+        const availableMajors = UQ_OPTIONS.majors[selProg] || [];
+        if (availableMajors.length > 0 && !availableMajors.find(m => m.id === dom.selMajor.value)) {
+            dom.selMajor.value = availableMajors[0].id;
+        }
+        populateFromMap(dom.selMajor, availableMajors, dom.selMajor.value);
+        const selMaj = dom.selMajor.value || availableMajors[0]?.id;
+
+        const availableMinors = UQ_OPTIONS.minors[selMaj] || [{ id: 'NONE', label: 'No Minor' }];
+        if (availableMinors.length > 0 && !availableMinors.find(m => m.id === dom.selMinor.value)) {
+            dom.selMinor.value = availableMinors[0].id;
+        }
+        populateFromMap(dom.selMinor, availableMinors, dom.selMinor.value);
+
+        const availableYears = UQ_OPTIONS.years.slice().sort().reverse();
+        if (availableYears.length > 0 && !availableYears.includes(parseInt(dom.selYear.value))) {
+            dom.selYear.value = availableYears[0];
+        }
+        populateFromMap(dom.selYear, availableYears, dom.selYear.value);
+    };
+
+    [dom.selProgram, dom.selMajor, dom.selMinor].forEach(el => {
+        el.addEventListener('change', () => {
+            const pSelect = dom.selProgram;
+            const mSelect = dom.selMajor;
+            const miSelect = dom.selMinor;
+            const ySelect = dom.selYear;
+            miSelect.innerHTML = '<option value="" disabled selected>Select Minor</option>';
+            miSelect.disabled = !mSelect.value;
+            ySelect.disabled = true;
+            ySelect.innerHTML = '<option value="" disabled selected>Select Year</option>';
+
+            const pId = pSelect.value;
+            const minorOpts = UQ_OPTIONS.minors[pId] || [];
+            minorOpts.forEach(mi => {
+                const opt = document.createElement('option');
+                opt.value = mi.id;
+                opt.textContent = mi.label;
+                miSelect.appendChild(opt);
+            });
+            
+            if (minorOpts.length === 1 && minorOpts[0].id === 'NONE') {
+                miSelect.value = 'NONE';
+                miSelect.dispatchEvent(new Event('change'));
+            }
+            window.refreshCascadingDropdowns();
+        });
+    });
+
+    // Start Planning Button confirms the choice and hides onboarding
+    const startBtn = document.getElementById('startPlanningBtn');
+    if (startBtn && !startBtn.dataset.bound) {
+        startBtn.dataset.bound = "true";
+        startBtn.addEventListener('click', async () => {
+            const selProg = dom.selProgram.value || UQ_OPTIONS.programs[0].id;
+            const selMaj = dom.selMajor.value || UQ_OPTIONS.majors[selProg][0].id;
+            const selMin = dom.selMinor.value || (UQ_OPTIONS.minors[selMaj] ? UQ_OPTIONS.minors[selMaj][0].id : 'NONE');
+            const selYear = dom.selYear.value || UQ_OPTIONS.years[0];
+
+            const majorObj = (UQ_OPTIONS.majors[selProg] || []).find(m => m.id === selMaj);
+            const minorObj = (UQ_OPTIONS.minors[selMaj] || []).find(m => m.id === selMin);
+
+            const majTitle = majorObj ? majorObj.label : selMaj;
+            const minTitle = minorObj ? minorObj.label : selMin;
+
+            // Show Loading UI
+            startBtn.style.display = 'none';
+            document.getElementById('scraperLoadingUI').style.display = 'flex';
+            const statusEl = document.getElementById('scraperStatus');
+            const barEl = document.getElementById('scraperProgressBar');
+
+            window.updateScraperProgress = (current, max) => {
+                statusEl.textContent = `Scraping UQ Course Prerequisites (${current}/${max})...`;
+                barEl.style.width = `${Math.min(100, (current / max) * 100)}%`;
+            };
+
+            try {
+                // Call scraper.js explicitly
+                const newConfig = await scrapeLiveDegree(majTitle, selProg, selMaj, selMin, minTitle, selYear);
+                
+                // Cache it
+                DEGREES[newConfig.id] = newConfig;
+                localStorage.setItem('uq_tracker_cached_degrees', JSON.stringify(DEGREES));
+                
+                // Finalize
+                changeDegree(newConfig.id);
+                document.getElementById('onboardingScreen').classList.add('hidden');
+            } catch(e) {
+                console.error(e);
+                alert("Failed to scrape UQ degree! The proxy might be down or UQ blocked it. " + e.message);
+            } finally {
+                startBtn.style.display = 'block';
+                document.getElementById('scraperLoadingUI').style.display = 'none';
+            }
+        });
+    }
+
+    // Initial populate
+    window.refreshCascadingDropdowns();
+}
+
+function updateUIDegreeTitles() {
+    const d = DEGREES[currentDegreeId];
+    if (d) {
+        document.getElementById('dispDegreeTitle').textContent = d.title; // e.g., "Software Engineering (AI Minor)"
+        document.getElementById('dispDegreeYear').textContent = d.programTitle + " " + d.years; // e.g. BE(Hons) 2024 to 2027
+    }
+}
 
 async function initApp() {
     applyInitialTheme();
 
     dom.degreeSelect = document.getElementById('degreeSelect');
+    dom.selProgram = document.getElementById('selProgram');
+    dom.selMajor = document.getElementById('selMajor');
+    dom.selMinor = document.getElementById('selMinor');
+    dom.selYear = document.getElementById('selYear');
+    dom.changeDegreeBtn = document.getElementById('changeDegreeBtn');
+    if (dom.changeDegreeBtn) dom.changeDegreeBtn.addEventListener('click', () => {
+        document.getElementById('onboardingScreen').classList.remove('hidden');
+        if (window.refreshCascadingDropdowns) window.refreshCascadingDropdowns();
+    });
+
+    initCascadingDropdowns();
+
     dom.courseSearch = document.getElementById('courseSearch');
     dom.resetBtn = document.getElementById('resetBtn');
     dom.undoBtn = document.getElementById('undoBtn');
     dom.redoBtn = document.getElementById('redoBtn');
     dom.shareBtn = document.getElementById('shareBtn');
     dom.exportBtn = document.getElementById('exportBtn');
-    dom.themeToggleBtn = document.getElementById('themeToggleBtn');
-    
+
     dom.semestersGrid = document.getElementById('semestersGrid');
     dom.progressDashboard = document.getElementById('progressDashboard');
     dom.loadingBar = document.getElementById('loadingBar');
     dom.loadingBarFill = document.getElementById('loadingBarFill');
     dom.loadingBarText = document.getElementById('loadingBarText');
-    
+
     dom.tabBtnPlan = document.getElementById('tabBtnPlan');
     dom.tabBtnCourses = document.getElementById('tabBtnCourses');
     dom.planContent = document.getElementById('planContent');
     dom.coursesContent = document.getElementById('coursesContent');
-    
+
     dom.quickAddSearch = document.getElementById('quickAddSearch');
     dom.quickAddDropdown = document.getElementById('quickAddDropdown');
     dom.shortlistContainer = document.getElementById('shortlistContainer');
     dom.unassignedList = document.getElementById('unassignedList');
     dom.coursesGrid = document.getElementById('coursesGrid');
-    
+
     dom.semesterPickerPopup = document.getElementById('semesterPickerPopup');
     dom.semesterPickerOptions = document.getElementById('semesterPickerOptions');
 
@@ -171,20 +346,20 @@ async function initApp() {
             renderCoursesTab();
         });
     }
-    
+
     if (dom.quickAddSearch) {
         dom.quickAddSearch.addEventListener('input', handleQuickAddInput);
         dom.quickAddSearch.addEventListener('focus', handleQuickAddInput);
     }
-    
+
     document.addEventListener('click', (e) => {
         if (dom.quickAddSearch && !dom.quickAddSearch.contains(e.target) && !dom.quickAddDropdown.contains(e.target)) {
             dom.quickAddDropdown.classList.add('is-hidden');
         }
-        if (dom.semesterPickerPopup && !dom.semesterPickerPopup.classList.contains('is-hidden') && 
+        if (dom.semesterPickerPopup && !dom.semesterPickerPopup.classList.contains('is-hidden') &&
             !e.target.closest('#semesterPickerPopup') && !e.target.closest('.add-to-plan-btn') && !e.target.closest('.dropdown-item')) {
-             dom.semesterPickerPopup.classList.add('is-hidden');
-             state.activePickerCourse = null;
+            dom.semesterPickerPopup.classList.add('is-hidden');
+            state.activePickerCourse = null;
         }
     });
 
@@ -291,6 +466,10 @@ function changeDegree(newDegreeId) {
     state.semesterOrder = {};
     state.activeFilter = 'All';
     state.searchQuery = '';
+
+    updateUIDegreeTitles();
+    saveState();
+    renderAll();
     loadState();
     initializeHistory();
     renderFilters();
@@ -563,7 +742,7 @@ async function exportPlan() {
         const wrapper = document.getElementById('planContent');
         const oldOverflow = wrapper.style.overflow;
         const oldWidth = dom.semestersGrid.style.width;
-        
+
         // Let the grid expand fully to capture all semesters without scrolling bounds
         wrapper.style.overflow = 'visible';
         dom.semestersGrid.style.width = 'max-content';
@@ -746,31 +925,31 @@ function renderCoursesTab() {
 
         const card = createCourseCard(c);
         card.draggable = false;
-        
+
         if (state.searchQuery) {
             const codeEl = card.querySelector('.course-code-text');
             const nameEl = card.querySelector('.course-name');
             if (codeEl) codeEl.innerHTML = highlightSearchText(c.code, state.searchQuery);
             if (nameEl) nameEl.innerHTML = highlightSearchText(c.name, state.searchQuery);
         }
-        
+
         const actionsDiv = card.querySelector('.card-actions');
         if (actionsDiv) {
             const inPlan = !!state.placements[c.code] && state.placements[c.code] !== 'unassigned';
             const isShortlisted = state.shortlist.includes(c.code);
-            
+
             if (inPlan) {
                 const btnRemove = `<button type="button" class="strict-btn btn-remove-plan" style="grid-column: 1 / -1;" data-code="${c.code}">− Remove from Plan</button>`;
                 actionsDiv.innerHTML = `${btnRemove}`;
                 const elRemove = actionsDiv.querySelector('.btn-remove-plan');
                 if (elRemove) elRemove.addEventListener('click', () => removeFromPlan(c.code));
             } else {
-                let btnShortlist = isShortlisted 
+                let btnShortlist = isShortlisted
                     ? `<button type="button" class="strict-btn inverted" style="cursor:default;" disabled>Shortlisted ✓</button>`
                     : `<button type="button" class="strict-btn btn-shortlist" data-code="${c.code}">+ Shortlist</button>`;
                 const btnAdd = `<button type="button" class="strict-btn add-to-plan-btn" data-code="${c.code}">+ Add to Plan →</button>`;
                 actionsDiv.innerHTML = `${btnShortlist}${btnAdd}`;
-                
+
                 const elShortlist = actionsDiv.querySelector('.btn-shortlist');
                 if (elShortlist) elShortlist.addEventListener('click', () => addToShortlist(c.code));
                 const elAdd = actionsDiv.querySelector('.add-to-plan-btn');
@@ -800,38 +979,38 @@ function removeFromShortlist(code) {
 function renderShortlist() {
     if (!dom.shortlistContainer) return;
     dom.shortlistContainer.innerHTML = '';
-    
+
     // Filter out items that are already placed
     const validShortlist = state.shortlist.filter(code => {
         return !(state.placements[code] && state.placements[code] !== 'unassigned');
     });
-    
+
     if (validShortlist.length === 0) {
         dom.shortlistContainer.innerHTML = `<div class="empty-placeholder">— no courses shortlisted</div>`;
         return;
     }
-    
+
     validShortlist.forEach(code => {
         const cInfo = getCourseInfo(code);
         if (!cInfo) return;
-        
+
         const el = document.createElement('div');
         el.className = 'shortlist-item';
         el.draggable = true;
         el.id = 'shortlist-' + cInfo.code;
         el.dataset.code = cInfo.code;
-        
+
         el.innerHTML = `
             <span class="shortlist-handle">⠿</span>
             <span style="font-weight: 500;">${cInfo.code}</span>
             <span style="font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; margin: 0 8px;">${cInfo.name}</span>
             <button class="shortlist-remove" title="Remove" data-code="${cInfo.code}">×</button>
         `;
-        
+
         el.querySelector('.shortlist-remove').addEventListener('click', () => removeFromShortlist(cInfo.code));
         el.addEventListener('dragstart', handleDragStart);
         el.addEventListener('dragend', handleDragEnd);
-        
+
         dom.shortlistContainer.appendChild(el);
     });
 }
@@ -842,38 +1021,38 @@ function handleQuickAddInput(e) {
         dom.quickAddDropdown.classList.add('is-hidden');
         return;
     }
-    
+
     dom.quickAddDropdown.innerHTML = '';
     let matches = 0;
-    
+
     for (const c of state.courses) {
         if (state.placements[c.code] && state.placements[c.code] !== 'unassigned') continue;
-        
+
         if (c.code.toLowerCase().includes(query) || c.name.toLowerCase().includes(query)) {
             matches++;
             const item = document.createElement('div');
             item.className = 'dropdown-item';
-            
+
             const codeHTML = highlightSearchText(c.code, query);
             const nameHTML = highlightSearchText(c.name, query);
-            
+
             item.innerHTML = `
                 <div><span style="font-weight: 500;">${codeHTML}</span> <span style="font-size: 12px; margin-left:8px;">${nameHTML}</span></div>
                 <div style="font-size: 16px; font-weight: 500;">+</div>
             `;
-            
+
             item.addEventListener('click', (ev) => {
                 ev.stopPropagation();
                 showSemesterPicker(c.code, dom.quickAddSearch);
                 dom.quickAddDropdown.classList.add('is-hidden');
                 dom.quickAddSearch.value = '';
             });
-            
+
             dom.quickAddDropdown.appendChild(item);
             if (matches >= 6) break;
         }
     }
-    
+
     if (matches > 0) {
         dom.quickAddDropdown.classList.remove('is-hidden');
     } else {
@@ -887,7 +1066,7 @@ function showSemesterPicker(code, anchorEl) {
     if (!cInfo) return;
 
     dom.semesterPickerOptions.innerHTML = '';
-    
+
     // Position picker
     const rect = anchorEl.getBoundingClientRect();
     dom.semesterPickerPopup.style.top = (rect.bottom + window.scrollY + 8) + 'px';
@@ -896,43 +1075,43 @@ function showSemesterPicker(code, anchorEl) {
         left = window.innerWidth - 320;
     }
     dom.semesterPickerPopup.style.left = Math.max(8, left) + 'px';
-    
+
     // Group semesters by year
     const years = [...new Set(SEMESTERS.map(s => s.year))].sort();
-    
+
     years.forEach(year => {
         const yearSems = SEMESTERS.filter(s => s.year === year);
-        
+
         const row = document.createElement('div');
         row.className = 'picker-year-row';
-        
+
         const yearLabel = document.createElement('div');
         yearLabel.className = 'picker-year-label';
         yearLabel.textContent = year;
         row.appendChild(yearLabel);
-        
+
         const btnsWrap = document.createElement('div');
         btnsWrap.className = 'picker-year-btns';
-        
+
         yearSems.forEach(sem => {
             const placedCodes = Object.keys(state.placements).filter(c => {
                 const placement = state.placements[c];
                 if (Array.isArray(placement)) return placement.includes(sem.id);
                 return placement === sem.id;
             });
-            
+
             let units = 0;
             placedCodes.forEach(pc => {
                 const inf = getCourseInfo(pc);
                 if (inf) units += inf.isYearLong ? (inf.units / 2) : inf.units;
             });
-            
+
             const alreadyAdded = placedCodes.includes(code);
             const isFull = units >= 8;
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'strict-btn';
-            
+
             if (alreadyAdded) {
                 btn.textContent = `S${sem.semNum} — added`;
                 btn.disabled = true;
@@ -947,7 +1126,7 @@ function showSemesterPicker(code, anchorEl) {
                 btn.textContent = `S${sem.semNum}`;
                 btn.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    
+
                     if (cInfo.isYearLong) {
                         const idx = SEMESTERS.findIndex(s => s.id === sem.id);
                         if (idx + 1 < SEMESTERS.length) {
@@ -963,7 +1142,7 @@ function showSemesterPicker(code, anchorEl) {
                         state.placements[code] = sem.id;
                         insertCourseInSemesterOrder(sem.id, code, null);
                     }
-                    
+
                     removeFromShortlist(code);
                     saveState();
                     renderAll();
@@ -971,14 +1150,14 @@ function showSemesterPicker(code, anchorEl) {
                     state.activePickerCourse = null;
                 });
             }
-            
+
             btnsWrap.appendChild(btn);
         });
-        
+
         row.appendChild(btnsWrap);
         dom.semesterPickerOptions.appendChild(row);
     });
-    
+
     dom.semesterPickerPopup.classList.remove('is-hidden');
 }
 
@@ -998,7 +1177,10 @@ function updateProgress() {
         .filter(Boolean);
 
     REQUIREMENTS.forEach(req => {
-        const filtered = plannedCourses.filter(req.filter);
+        const filtered = plannedCourses.filter(c => {
+            if (!req.validCats || req.validCats.length === 0) return true; // Total Units fallback
+            return req.validCats.includes(c.cat);
+        });
         const sum = filtered.reduce((acc, crs) => acc + crs.units, 0);
         const percentage = Math.min(100, Math.round((sum / req.target) * 100));
 
@@ -1085,7 +1267,7 @@ function createCourseCard(c) {
             removeCustomCourse(c.code);
         });
     }
-    
+
     const removeBtn = el.querySelector('.planner-remove-btn');
     if (removeBtn) {
         removeBtn.addEventListener('click', (e) => {

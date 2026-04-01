@@ -119,8 +119,8 @@ body {
   text-overflow: ellipsis;
 }
 
-/* Legacy meta-info select (hidden, kept for JS) */
-.meta-info select {
+/* Dropdown Selects */
+.meta-select {
   appearance: none;
   background: transparent;
   border: none;
@@ -884,4 +884,90 @@ mark.search-highlight {
 .picker-year-btns {
   display: flex;
   gap: 6px;
+}
+
+/* ==========================================================
+   ONBOARDING / DEGREE SELECTION SCREEN
+   ========================================================== */
+#onboardingScreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: var(--bg-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+  transition: opacity 0.4s ease, visibility 0.4s ease;
+  visibility: visible;
+}
+
+#onboardingScreen.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.onboarding-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  padding: 48px 64px;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 500px;
+  width: 100%;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.05);
+}
+
+.onboarding-title {
+  font-size: 32px;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.onboarding-subtitle {
+  font-size: 14px;
+  color: var(--disabled-color);
+  margin: 0 0 16px 0;
+}
+
+.onboarding-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.onboarding-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.onboarding-field label {
+  font-size: 9px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--disabled-color);
+}
+
+.primary-btn {
+  background: var(--text-color);
+  color: var(--bg-color);
+  border: none;
+  padding: 12px 24px;
+  font-family: var(--font-family);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-top: 16px;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.primary-btn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
 }
