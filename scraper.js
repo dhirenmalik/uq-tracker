@@ -146,34 +146,50 @@ async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTi
 
     const progRules = progData.programRequirements.payload.components.find(c => c.componentIntegrationIdentifier === 'PROGRAM_RULES')?.payload;
     if (progRules) {
-        const corePart = progRules.body[0];
-        const optionPart = progRules.body.find(p => p.header?.title?.toLowerCase().includes('option'));
+        // Sum N across ALL program-level core parts (first part is typically core)
+        progRules.body.forEach((part, idx) => {
+            const title = part.header?.title || '';
+            const lTitle = title.toLowerCase();
+            const n = getRuleN(part);
 
-        if (corePart) {
-            coreLabel = (corePart.header?.title || "Core").replace(/ courses/gi, "").replace(/hons\)/gi, "Hons)");
-            coreTarget = getRuleN(corePart);
-            traverseTree(corePart.body || [], () => 'Core');
-        }
-        if (optionPart) {
-            traverseTree(optionPart.body || [], (path) => {
-                const s = path.toLowerCase();
-                if (s.includes('extension') || s.includes('research')) return 'Major Ext';
-                if (s.includes('advanced')) return 'Major Adv';
-                if (s.includes('elective')) return 'Elective';
-                return 'Major Options';
-            });
-        }
+            if (idx === 0 || lTitle.includes('core')) {
+                // First block or any explicitly named 'Core' block
+                if (!coreLabel || coreLabel === 'Core') {
+                    coreLabel = title.replace(/ courses/gi, '').replace(/hons\)/gi, 'Hons)') || 'Core';
+                }
+                coreTarget += n;
+                traverseTree(part.body || [], () => 'Core');
+            } else if (lTitle.includes('option')) {
+                traverseTree(part.body || [], (path) => {
+                    const s = path.toLowerCase();
+                    if (s.includes('extension') || s.includes('research')) return 'Major Ext';
+                    if (s.includes('advanced')) return 'Major Adv';
+                    if (s.includes('elective')) return 'Elective';
+                    return 'Major Options';
+                });
+            }
+            // Silently skip breadth/elective/general parts — they get counted elsewhere
+        });
     }
 
     if (planData) {
         const planRules = planData.programRequirements.payload.components.find(c => c.componentIntegrationIdentifier === 'PROGRAM_RULES')?.payload;
         if (planRules) {
-            const majorCorePart = planRules.body.find(p => p.header?.title?.toLowerCase().includes('compulsory'));
-            if (majorCorePart) {
-                majorCoreLabel = (majorCorePart.header?.title || "Major Core").replace(/ courses/gi, "").replace(/compulsory/gi, "Core");
-                majorCoreTarget = getRuleN(majorCorePart);
-                traverseTree(majorCorePart.body || [], () => 'Major Core');
-            }
+            planRules.body.forEach(part => {
+                const title = part.header?.title || '';
+                const lTitle = title.toLowerCase();
+                const n = getRuleN(part);
+                if (lTitle.includes('compulsory') || lTitle.includes('core')) {
+                    // Sum ALL compulsory/core parts from the plan
+                    if (!majorCoreLabel || majorCoreLabel === 'Major Core') {
+                        majorCoreLabel = title.replace(/ courses/gi, '').replace(/compulsory/gi, 'Core').trim() || 'Major Core';
+                    }
+                    majorCoreTarget += n;
+                    traverseTree(part.body || [], () => 'Major Core');
+                } else if (lTitle.includes('elective')) {
+                    traverseTree(part.body || [], () => 'Elective');
+                }
+            });
         }
     }
 
@@ -181,6 +197,7 @@ async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTi
     if (minorData) {
         const minorRules = minorData.programRequirements.payload.components.find(c => c.componentIntegrationIdentifier === 'PROGRAM_RULES')?.payload;
         if (minorRules) {
+            // Sum ALL parts of the minor
             minorRules.body.forEach(part => minorUnits += getRuleN(part));
             traverseTree(minorRules.body || [], () => 'Minor');
         }
@@ -217,7 +234,8 @@ async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTi
     await Promise.all(workers);
 
     // FORMAT UI OUTPUT
-    const beTotalMax = progData.programRequirements.unitsMaximum || 64;
+    const beTotalMax = progData.programRequirements?.unitsMaximum || progData.programRequirements?.unitsMinimum || 48;
+    const yearsOfStudy = Math.ceil(beTotalMax / 16);
 
     const reqs = [
         { id: 'total', name: 'Total Units', target: beTotalMax, validCats: [], color: 'var(--accent-color)' },
@@ -229,21 +247,18 @@ async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTi
         reqs.push({ id: 'minor', name: minorTitle, target: minorUnits, validCats: ['Minor'], color: 'var(--cat-aiminor)' });
     }
 
-    // Try to get elective targets dynamically if available
-    let electiveTarget = 4; // fallback
-    if (progRules) {
-        const electivePart = progRules.body.find(p => p.header?.title?.toLowerCase().includes('elective'));
-        if (electivePart) electiveTarget = getRuleN(electivePart) || 4;
-    }
+    // Derive elective target as the remainder — what's left after all other requirements are accounted for
+    const majorExtTarget = 2;
+    const electiveTarget = Math.max(0, beTotalMax - coreTarget - majorCoreTarget - minorUnits - majorExtTarget);
 
     reqs.push(
-        { id: 'majorext', name: 'Extension / Adv', target: 2, validCats: ['Major Ext', 'Major Adv'], color: 'var(--cat-seext)' },
+        { id: 'majorext', name: 'Extension / Adv', target: majorExtTarget, validCats: ['Major Ext', 'Major Adv'], color: 'var(--cat-seext)' },
         { id: 'electives', name: 'Electives', target: electiveTarget, validCats: ['Elective', 'Major Options'], color: 'var(--cat-elec)' }
     );
 
     const semesters = [];
     const sy = parseInt(year, 10);
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < yearsOfStudy; i++) {
         const yr = sy + i;
         const yy = yr.toString().slice(-2);
         semesters.push({ id: `sem-${yy}-1`, name: `${yr} Sem 1`, year: yr, semNum: 1 });
@@ -260,7 +275,7 @@ async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTi
         programTitle: progData.title || "Bachelor of Engineering (Honours)",
         majorTitle: majorTitle,
         minorTitle: minorTitle,
-        years: `${sy} to ${sy + 3}`,
+        years: `${sy} to ${sy + (yearsOfStudy - 1)}`,
         semesters: semesters,
         requirements: reqs,
         courses: realCourses
