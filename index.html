@@ -15,7 +15,7 @@
     <div class="onboarding-card">
       <h1 class="onboarding-title">Welcome to UQ Tracker</h1>
       <p class="onboarding-subtitle">Select your program to load your dynamic degree planner.</p>
-      
+
       <div class="onboarding-fields">
         <div class="onboarding-field">
           <label>PROGRAM</label>
@@ -34,13 +34,15 @@
           <select id="selYear" class="meta-select"></select>
         </div>
       </div>
-      
-      
+
+
       <button id="startPlanningBtn" class="primary-btn">Start Planning</button>
-      
+
       <!-- Loading UI for live scraper -->
-      <div id="scraperLoadingUI" class="is-hidden" style="display:none; flex-direction:column; gap:8px; margin-top:16px;">
-        <span id="scraperStatus" class="onboarding-subtitle" style="margin:0; font-size:12px;">Fetching from UQ API...</span>
+      <div id="scraperLoadingUI" class="is-hidden"
+        style="display:none; flex-direction:column; gap:8px; margin-top:16px;">
+        <span id="scraperStatus" class="onboarding-subtitle" style="margin:0; font-size:12px;">Fetching from UQ
+          API...</span>
         <div class="progress-bar-container">
           <div class="progress-bar" id="scraperProgressBar" style="width: 0%; background: var(--accent-color);"></div>
         </div>

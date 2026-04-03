@@ -139,12 +139,21 @@ async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTi
         return param ? param.value : 0;
     }
 
+    let coreLabel = "Core";
+    let coreTarget = 0;
+    let majorCoreLabel = "Major Core";
+    let majorCoreTarget = 0;
+
     const progRules = progData.programRequirements.payload.components.find(c => c.componentIntegrationIdentifier === 'PROGRAM_RULES')?.payload;
     if (progRules) {
         const corePart = progRules.body[0];
         const optionPart = progRules.body.find(p => p.header?.title?.toLowerCase().includes('option'));
 
-        if (corePart) traverseTree(corePart.body || [], () => 'Core');
+        if (corePart) {
+            coreLabel = (corePart.header?.title || "Core").replace(/ courses/gi, "").replace(/hons\)/gi, "Hons)");
+            coreTarget = getRuleN(corePart);
+            traverseTree(corePart.body || [], () => 'Core');
+        }
         if (optionPart) {
             traverseTree(optionPart.body || [], (path) => {
                 const s = path.toLowerCase();
@@ -160,7 +169,11 @@ async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTi
         const planRules = planData.programRequirements.payload.components.find(c => c.componentIntegrationIdentifier === 'PROGRAM_RULES')?.payload;
         if (planRules) {
             const majorCorePart = planRules.body.find(p => p.header?.title?.toLowerCase().includes('compulsory'));
-            if (majorCorePart) traverseTree(majorCorePart.body || [], () => 'Major Core');
+            if (majorCorePart) {
+                majorCoreLabel = (majorCorePart.header?.title || "Major Core").replace(/ courses/gi, "").replace(/compulsory/gi, "Core");
+                majorCoreTarget = getRuleN(majorCorePart);
+                traverseTree(majorCorePart.body || [], () => 'Major Core');
+            }
         }
     }
 
@@ -208,17 +221,24 @@ async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTi
 
     const reqs = [
         { id: 'total', name: 'Total Units', target: beTotalMax, validCats: [], color: 'var(--accent-color)' },
-        { id: 'core', name: 'BE Core', target: 8, validCats: ['Core'], color: 'var(--cat-core)' },
-        { id: 'majorcore', name: 'SE Core', target: 34, validCats: ['Major Core'], color: 'var(--cat-secore)' }
+        { id: 'core', name: coreLabel, target: coreTarget, validCats: ['Core'], color: 'var(--cat-core)' },
+        { id: 'majorcore', name: majorCoreLabel, target: majorCoreTarget, validCats: ['Major Core'], color: 'var(--cat-secore)' }
     ];
 
     if (minorId !== 'NONE') {
         reqs.push({ id: 'minor', name: minorTitle, target: minorUnits, validCats: ['Minor'], color: 'var(--cat-aiminor)' });
     }
 
+    // Try to get elective targets dynamically if available
+    let electiveTarget = 4; // fallback
+    if (progRules) {
+        const electivePart = progRules.body.find(p => p.header?.title?.toLowerCase().includes('elective'));
+        if (electivePart) electiveTarget = getRuleN(electivePart) || 4;
+    }
+
     reqs.push(
-        { id: 'majorext', name: 'SE Ext / Adv', target: 2, validCats: ['Major Ext', 'Major Adv'], color: 'var(--cat-seext)' },
-        { id: 'electives', name: 'Electives', target: 4, validCats: ['Elective', 'Major Options'], color: 'var(--cat-elec)' }
+        { id: 'majorext', name: 'Extension / Adv', target: 2, validCats: ['Major Ext', 'Major Adv'], color: 'var(--cat-seext)' },
+        { id: 'electives', name: 'Electives', target: electiveTarget, validCats: ['Elective', 'Major Options'], color: 'var(--cat-elec)' }
     );
 
     const semesters = [];
