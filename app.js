@@ -216,6 +216,9 @@ function initCascadingDropdowns() {
             const scraperUI = document.getElementById('scraperLoadingUI');
             scraperUI.classList.remove('is-hidden');
             scraperUI.style.display = 'flex';
+            
+            const statusEl = document.getElementById('scraperStatus');
+            const barEl = document.getElementById('scraperProgressBar');
 
             window.updateScraperProgress = (current, max) => {
                 statusEl.textContent = `Scraping UQ Course Prerequisites (${current}/${max})...`;

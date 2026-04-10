@@ -78,6 +78,14 @@ async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTi
     if (!progData) {
         throw new Error("Could not parse Program HTML from UQ.");
     }
+    
+    if (urls.plan && !planData) {
+        throw new Error(`The major ${majorTitle} (${majorId}) does not seem to exist or be offered for this program in ${year}.`);
+    }
+
+    if (urls.minor && !minorData) {
+        throw new Error(`The minor ${minorTitle} (${minorId}) does not seem to exist or be offered for this program in ${year}.`);
+    }
 
     const courses = [];
     const seen = new Set();
