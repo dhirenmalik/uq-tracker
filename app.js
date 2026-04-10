@@ -177,32 +177,14 @@ function initCascadingDropdowns() {
             dom.selYear.value = availableYears[0];
         }
         populateFromMap(dom.selYear, availableYears, dom.selYear.value);
+
+        if (dom.selYear.options.length > 0) {
+            dom.selYear.disabled = false;
+        }
     };
 
     [dom.selProgram, dom.selMajor, dom.selMinor].forEach(el => {
         el.addEventListener('change', () => {
-            const pSelect = dom.selProgram;
-            const mSelect = dom.selMajor;
-            const miSelect = dom.selMinor;
-            const ySelect = dom.selYear;
-            miSelect.innerHTML = '<option value="" disabled selected>Select Minor</option>';
-            miSelect.disabled = !mSelect.value;
-            ySelect.disabled = true;
-            ySelect.innerHTML = '<option value="" disabled selected>Select Year</option>';
-
-            const pId = pSelect.value;
-            const minorOpts = UQ_OPTIONS.minors[pId] || [];
-            minorOpts.forEach(mi => {
-                const opt = document.createElement('option');
-                opt.value = mi.id;
-                opt.textContent = mi.label;
-                miSelect.appendChild(opt);
-            });
-            
-            if (minorOpts.length === 1 && minorOpts[0].id === 'NONE') {
-                miSelect.value = 'NONE';
-                miSelect.dispatchEvent(new Event('change'));
-            }
             window.refreshCascadingDropdowns();
         });
     });
@@ -225,9 +207,9 @@ function initCascadingDropdowns() {
 
             // Show Loading UI
             startBtn.style.display = 'none';
-            document.getElementById('scraperLoadingUI').style.display = 'flex';
-            const statusEl = document.getElementById('scraperStatus');
-            const barEl = document.getElementById('scraperProgressBar');
+            const scraperUI = document.getElementById('scraperLoadingUI');
+            scraperUI.classList.remove('is-hidden');
+            scraperUI.style.display = 'flex';
 
             window.updateScraperProgress = (current, max) => {
                 statusEl.textContent = `Scraping UQ Course Prerequisites (${current}/${max})...`;
@@ -250,7 +232,9 @@ function initCascadingDropdowns() {
                 alert("Failed to scrape UQ degree! The proxy might be down or UQ blocked it. " + e.message);
             } finally {
                 startBtn.style.display = 'block';
-                document.getElementById('scraperLoadingUI').style.display = 'none';
+                const scraperUI = document.getElementById('scraperLoadingUI');
+                scraperUI.classList.add('is-hidden');
+                scraperUI.style.display = 'none';
             }
         });
     }
@@ -415,12 +399,26 @@ async function initApp() {
         dom.shortlistContainer.addEventListener('dragleave', handleDragLeave);
     }
 
+    await fetchSemestersAndRender();
+}
+
+// ============================================================
+// DEGREE
+// ============================================================
+
+async function fetchSemestersAndRender() {
     const realCodes = state.courses
         .filter(c => /^[A-Z]{4}\d{4}$/.test(c.code))
         .map(c => c.code);
     const total = realCodes.length;
 
     if (total > 0) {
+        if (dom.loadingBar) {
+            dom.loadingBar.classList.remove('is-hidden');
+            dom.loadingBarText.textContent = `LOADING SEMESTERS 0/${total}`;
+            dom.loadingBarFill.style.display = 'block';
+            dom.loadingBarFill.style.width = '0%';
+        }
         let completed = 0;
 
         const promises = realCodes.map(code =>
@@ -449,11 +447,7 @@ async function initApp() {
     }
 }
 
-// ============================================================
-// DEGREE
-// ============================================================
-
-function changeDegree(newDegreeId) {
+async function changeDegree(newDegreeId) {
     localStorage.setItem('uq_tracker_degree', newDegreeId);
     currentDegreeId = newDegreeId;
     COURSES = DEGREES[currentDegreeId].courses;
@@ -469,12 +463,12 @@ function changeDegree(newDegreeId) {
 
     updateUIDegreeTitles();
     saveState();
-    renderAll();
     loadState();
     initializeHistory();
     renderFilters();
-    renderAll();
     updateHistoryControls();
+
+    await fetchSemestersAndRender();
 }
 
 // ============================================================

@@ -1,0 +1,21 @@
+{
+  "name": "uqtracker",
+  "version": "1.0.0",
+  "description": "Built this because there wasn't a reliable degree tracker that actually worked. It lets you map out 8 semesters, tracks prerequisites, and automatically calculates core and elective requirements so you don't have to. Currently only for Software engg w an AI minor, but planning to add more later.",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dhirenmalik/uq-tracker.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/dhirenmalik/uq-tracker/issues"
+  },
+  "homepage": "https://github.com/dhirenmalik/uq-tracker#readme"
+}
