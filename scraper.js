@@ -33,13 +33,27 @@ async function scrapeCourseDetailsDynamically(code) {
     const courseUrl = `https://programs-courses.uq.edu.au/course.html?course_code=${encodeURIComponent(code)}`;
     const html = await fetchUQRaw(courseUrl);
     if (!html) {
-        courseCache[code] = { prereqs: [] };
+        courseCache[code] = { prereqs: [], semesters: {} };
         return courseCache[code];
     }
     const prereqMatch = html.match(/<p[^>]*id=["']course-prerequisite["'][^>]*>([\s\S]*?)<\/p>/i);
     const prereqText = stripHtmlAndNormalize(prereqMatch ? prereqMatch[1] : null) || '';
     const prereqs = Array.from(new Set(prereqText.match(/[A-Z]{4}\d{4}/g) || []));
-    courseCache[code] = { prereqs };
+
+    // Extract semester offerings from course page
+    // Matches patterns like: "Semester 1, 2026" or "Semester 2, 2025"
+    const semesters = {};
+    const offeringRegex = /Semester\s+(\d),\s+(\d{4})/g;
+    let semMatch;
+    while ((semMatch = offeringRegex.exec(html)) !== null) {
+        const semNum = parseInt(semMatch[1]);
+        const year = parseInt(semMatch[2]);
+        if (!semesters[year]) semesters[year] = [];
+        if (!semesters[year].includes(semNum)) semesters[year].push(semNum);
+    }
+    for (const y in semesters) semesters[y].sort();
+
+    courseCache[code] = { prereqs, semesters };
     return courseCache[code];
 }
 
@@ -225,6 +239,9 @@ async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTi
             if (index >= realCourses.length) return;
             const details = await scrapeCourseDetailsDynamically(realCourses[index].code);
             realCourses[index].prereqs = (details.prereqs || []).filter(pr => seen.has(pr));
+            if (details.semesters && Object.keys(details.semesters).length > 0) {
+                realCourses[index].semesters = details.semesters;
+            }
             if (window.updateScraperProgress) window.updateScraperProgress(currentTask, realCourses.length);
         }
     }

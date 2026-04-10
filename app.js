@@ -2,56 +2,62 @@
 // API
 // ============================================================
 
-const UQ_PLANNER_PROXY = 'https://lingering-bush-c27d.late-night.workers.dev/?/subjects';
+const COURSE_PROXY = 'https://aged-union-1d6f.deerain.workers.dev/?url=';
 const semesterCache = {};
 
 async function ensureCourseSemesters(code) {
     if (semesterCache[code]) return semesterCache[code];
 
+    // Check if the course already has semester data from the scraper/cache
+    const existingCourse = state.courses.find(c => c.code === code);
+    if (existingCourse && existingCourse.semesters && Object.keys(existingCourse.semesters).length > 0) {
+        semesterCache[code] = existingCourse.semesters;
+        return existingCourse.semesters;
+    }
+
     // Get all unique years from the degree's semester definitions
     const years = [...new Set(SEMESTERS.map(s => s.year))].sort();
     const result = {}; // { year: [1], year: [1, 2], ... }
 
-    // Query each year in parallel
-    const fetches = years.map(async (y) => {
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000);
-            const body = `search-term=${code}&semester=ALL&campus=ALL&faculty=ALL&type=ALL&days=1&days=2&days=3&days=4&days=5&days=6&days=0&start-time=00%3A00&end-time=23%3A00`;
-            const res = await fetch(UQ_PLANNER_PROXY, {
-                method: 'POST',
-                headers: {
-                    'accept': 'application/json',
-                    'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                    'year': y.toString()
-                },
-                body,
-                signal: controller.signal
-            });
-            clearTimeout(timeoutId);
-            const data = await res.json();
-            const sems = new Set();
-            for (const key in data) {
-                if (key.toUpperCase().startsWith(code)) {
-                    if (data[key].semester === 'S1') sems.add(1);
-                    if (data[key].semester === 'S2') sems.add(2);
-                }
-            }
-            if (sems.size > 0) {
-                result[y] = Array.from(sems).sort();
-            }
-        } catch (e) {
-        }
-    });
-    await Promise.all(fetches);
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        const courseUrl = `https://programs-courses.uq.edu.au/course.html?course_code=${encodeURIComponent(code)}`;
+        const res = await fetch(COURSE_PROXY + encodeURIComponent(courseUrl), {
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const html = await res.text();
 
-    // For years with no API data (e.g. future years), prefer 2025 data
+        // Extract all semester offerings from the course page HTML
+        // Matches patterns like: "Semester 1, 2026" or "Semester 2, 2025"
+        const offeringRegex = /Semester\s+(\d),\s+(\d{4})/g;
+        let match;
+        while ((match = offeringRegex.exec(html)) !== null) {
+            const semNum = parseInt(match[1]);
+            const year = parseInt(match[2]);
+            if (!result[year]) result[year] = [];
+            if (!result[year].includes(semNum)) result[year].push(semNum);
+        }
+
+        // Sort semester arrays
+        for (const y in result) {
+            result[y].sort();
+        }
+    } catch (e) {
+        // If fetch fails, leave result empty — course will be placeable anywhere
+    }
+
+    // For years with no data (e.g. future years), prefer 2025 data
     // as the most reliable reference, then fall back to nearest earlier year.
     // If no data exists at all, leave unset so the course is placeable anywhere.
     for (const y of years) {
         if (!result[y]) {
             if (result[2025]) {
                 result[y] = [...result[2025]];
+            } else if (result[2026]) {
+                result[y] = [...result[2026]];
             } else {
                 for (let prev = y - 1; prev >= years[0]; prev--) {
                     if (result[prev]) {
