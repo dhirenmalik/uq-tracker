@@ -12,6 +12,10 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      HAS_CLOUDFLARE_CONFIG: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+      HAS_SHARDED_REDIS_CONFIG: ${{ secrets.REDIS_SHARDS_JSON != '' }}
+      HAS_SINGLE_REDIS_CONFIG: ${{ secrets.REDIS_REST_URL != '' && secrets.REDIS_REST_TOKEN != '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -23,16 +27,35 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - uses: cloudflare/wrangler-action@v3
+      - name: Deploy Worker with sharded Redis config
+        if: env.HAS_CLOUDFLARE_CONFIG == 'true' && env.HAS_SHARDED_REDIS_CONFIG == 'true'
+        uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: worker
           secrets: |
             REDIS_SHARDS_JSON
+        env:
+          REDIS_SHARDS_JSON: ${{ secrets.REDIS_SHARDS_JSON }}
+
+      - name: Deploy Worker with single Redis config
+        if: env.HAS_CLOUDFLARE_CONFIG == 'true' && env.HAS_SHARDED_REDIS_CONFIG != 'true' && env.HAS_SINGLE_REDIS_CONFIG == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          secrets: |
             REDIS_REST_URL
             REDIS_REST_TOKEN
         env:
-          REDIS_SHARDS_JSON: ${{ secrets.REDIS_SHARDS_JSON }}
           REDIS_REST_URL: ${{ secrets.REDIS_REST_URL }}
           REDIS_REST_TOKEN: ${{ secrets.REDIS_REST_TOKEN }}
+
+      - name: Skip deploy when secrets are missing
+        if: env.HAS_CLOUDFLARE_CONFIG != 'true' || (env.HAS_SHARDED_REDIS_CONFIG != 'true' && env.HAS_SINGLE_REDIS_CONFIG != 'true')
+        run: |
+          echo "Shortener Worker deployment skipped." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID, plus either REDIS_SHARDS_JSON or both REDIS_REST_URL and REDIS_REST_TOKEN, to enable deployment." >> "$GITHUB_STEP_SUMMARY"
