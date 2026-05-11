@@ -701,16 +701,66 @@ function decodeStateFromHash(hashValue) {
     }
 }
 
+function getShortenerEndpoint() {
+    const meta = document.querySelector('meta[name="uqtracker-shortener-url"]');
+    const configuredUrl = (window.UQ_TRACKER_SHORTENER_URL || (meta && meta.content) || '').trim();
+    if (!configuredUrl) return '';
+    return configuredUrl.replace(/\/$/, '');
+}
+
+async function createShortShareUrl(targetUrl) {
+    const endpoint = getShortenerEndpoint();
+    if (!endpoint) return null;
+
+    const apiUrl = endpoint.endsWith('/api/links') ? endpoint : `${endpoint}/api/links`;
+    const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+            'content-type': 'application/json'
+        },
+        body: JSON.stringify({ targetUrl })
+    });
+
+    if (!response.ok) {
+        throw new Error(`Shortener returned ${response.status}`);
+    }
+
+    const result = await response.json();
+    if (!result || !result.shortUrl) {
+        throw new Error('Shortener response did not include shortUrl');
+    }
+
+    return result.shortUrl;
+}
+
 async function sharePlan() {
     const hash = encodeStateForHash();
-    const url = `${window.location.origin}${window.location.pathname}#${hash}`;
+    const longUrl = `${window.location.origin}${window.location.pathname}#${hash}`;
     window.location.hash = hash;
 
+    let shareUrl = longUrl;
+    let usedShortener = false;
+
     try {
-        await navigator.clipboard.writeText(url);
-        showShareToast('Link copied!');
+        const shortUrl = await createShortShareUrl(longUrl);
+        if (shortUrl) {
+            shareUrl = shortUrl;
+            usedShortener = true;
+        }
     } catch (e) {
-        showShareToast('Link ready in URL bar');
+        console.warn('Short link creation failed:', e);
+    }
+
+    try {
+        await navigator.clipboard.writeText(shareUrl);
+        showShareToast(usedShortener ? 'Short link copied!' : 'Link copied!');
+    } catch (e) {
+        if (usedShortener && typeof window.prompt === 'function') {
+            window.prompt('Copy short link:', shareUrl);
+            showShareToast('Short link ready');
+        } else {
+            showShareToast('Link ready in URL bar');
+        }
     }
 }
 
