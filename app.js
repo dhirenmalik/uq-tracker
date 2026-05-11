@@ -282,6 +282,7 @@ async function initApp() {
     dom.redoBtn = document.getElementById('redoBtn');
     dom.shareBtn = document.getElementById('shareBtn');
     dom.exportBtn = document.getElementById('exportBtn');
+    dom.checkOrderBtn = document.getElementById('checkOrderBtn');
 
     dom.semestersGrid = document.getElementById('semestersGrid');
     dom.progressDashboard = document.getElementById('progressDashboard');
@@ -369,6 +370,7 @@ async function initApp() {
     if (dom.redoBtn) dom.redoBtn.addEventListener('click', redo);
     if (dom.shareBtn) dom.shareBtn.addEventListener('click', sharePlan);
     if (dom.exportBtn) dom.exportBtn.addEventListener('click', exportPlan);
+    if (dom.checkOrderBtn) dom.checkOrderBtn.addEventListener('click', checkPrerequisiteOrder);
     if (dom.themeToggleBtn) {
         dom.themeToggleBtn.addEventListener('click', () => {
             const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
@@ -1206,6 +1208,127 @@ function renderAll() {
     renderCoursesTab();
     renderShortlist();
     updateProgress();
+}
+
+// ============================================================
+// PREREQUISITE ORDERING
+// ============================================================
+
+function getPlannedCourseCodes() {
+    return Object.keys(state.placements)
+        .filter(code => state.placements[code] && state.placements[code] !== 'unassigned')
+        .filter(code => !!getCourseInfo(code));
+}
+
+function getPrimarySemesterIdForCourse(code) {
+    const placement = state.placements[code];
+    if (Array.isArray(placement)) return placement[0] || null;
+    if (typeof placement === 'string' && placement !== 'unassigned') return placement;
+    return null;
+}
+
+function getSemesterIndexForCourse(code) {
+    const semesterId = getPrimarySemesterIdForCourse(code);
+    return semesterId ? SEMESTERS.findIndex(sem => sem.id === semesterId) : -1;
+}
+
+function findSemesterPrerequisiteViolations(plannedCodes) {
+    const plannedSet = new Set(plannedCodes);
+    const violations = [];
+
+    plannedCodes.forEach(code => {
+        const course = getCourseInfo(code);
+        if (!course || !Array.isArray(course.prereqs)) return;
+
+        const courseSemesterIndex = getSemesterIndexForCourse(code);
+        course.prereqs.forEach(prereqCode => {
+            if (!plannedSet.has(prereqCode)) return;
+
+            const prereqSemesterIndex = getSemesterIndexForCourse(prereqCode);
+            if (prereqSemesterIndex < 0 || courseSemesterIndex < 0 || prereqSemesterIndex >= courseSemesterIndex) {
+                violations.push({
+                    course: code,
+                    prereq: prereqCode,
+                    courseSemester: getPrimarySemesterIdForCourse(code),
+                    prereqSemester: getPrimarySemesterIdForCourse(prereqCode)
+                });
+            }
+        });
+    });
+
+    return violations;
+}
+
+function getSemesterName(semesterId) {
+    const semester = SEMESTERS.find(sem => sem.id === semesterId);
+    return semester ? semester.name : 'not placed';
+}
+
+function formatEnrollmentOrder(order) {
+    return order.map((code, index) => {
+        const course = getCourseInfo(code);
+        const name = course && course.name ? ` - ${course.name}` : '';
+        return `${index + 1}. ${code}${name}`;
+    }).join('\n');
+}
+
+function formatPrerequisiteIssues(sortResult, semesterViolations) {
+    const lines = [];
+
+    if (sortResult.missingPrerequisites.length > 0) {
+        lines.push('Missing prerequisites:');
+        sortResult.missingPrerequisites.forEach(issue => {
+            const suffix = issue.reason === 'not-selected' ? 'not in this plan' : 'not in the course data';
+            lines.push(`- ${issue.course} requires ${issue.prereq}, which is ${suffix}.`);
+        });
+    }
+
+    if (sortResult.cycles.length > 0) {
+        if (lines.length > 0) lines.push('');
+        lines.push('Invalid prerequisite chains:');
+        sortResult.cycles.forEach(cycle => {
+            lines.push(`- ${cycle.join(' -> ')}`);
+        });
+    }
+
+    if (semesterViolations.length > 0) {
+        if (lines.length > 0) lines.push('');
+        lines.push('Semester order issues:');
+        semesterViolations.forEach(issue => {
+            lines.push(`- ${issue.course} must be after ${issue.prereq} (${getSemesterName(issue.prereqSemester)} -> ${getSemesterName(issue.courseSemester)}).`);
+        });
+    }
+
+    return lines.join('\n');
+}
+
+function checkPrerequisiteOrder() {
+    const prerequisiteGraph = (typeof PrerequisiteGraph !== 'undefined') ? PrerequisiteGraph : window.PrerequisiteGraph;
+    if (!prerequisiteGraph || typeof prerequisiteGraph.sortCoursesByPrerequisites !== 'function') {
+        alert('Prerequisite ordering is unavailable.');
+        return;
+    }
+
+    const plannedCodes = getPlannedCourseCodes();
+    if (plannedCodes.length === 0) {
+        alert('Add courses to the plan before checking prerequisite order.');
+        return;
+    }
+
+    const sortResult = prerequisiteGraph.sortCoursesByPrerequisites(state.courses, {
+        selectedCodes: plannedCodes,
+        requireSelectedPrerequisites: true
+    });
+    const semesterViolations = findSemesterPrerequisiteViolations(plannedCodes);
+
+    if (!sortResult.valid || semesterViolations.length > 0) {
+        alert(formatPrerequisiteIssues(sortResult, semesterViolations));
+        showShareToast('Prereq issues found');
+        return;
+    }
+
+    alert(`Valid enrolment order:\n\n${formatEnrollmentOrder(sortResult.order)}`);
+    showShareToast('Plan order valid');
 }
 
 // ============================================================
