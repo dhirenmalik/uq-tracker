@@ -175,12 +175,21 @@ body {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  align-self: flex-start;
-  width: 240px; /* Force an exact uniform width for the grid */
+  align-self: stretch;
+  width: 100%;
+  min-width: 0;
 }
 
 .actions-group {
   display: contents;
+}
+
+.actions-rows .strict-btn {
+  width: 100%;
+  min-width: 0;
+  padding-inline: 4px;
+  white-space: nowrap;
+  line-height: 1;
 }
 
 .strict-btn {
@@ -194,7 +203,8 @@ body {
   cursor: pointer;
   border-radius: 0;
   transition: background-color 50ms, color 50ms;
-  height: 32px;
+  min-height: 32px;
+  height: auto;
   box-sizing: border-box;
 }
 
