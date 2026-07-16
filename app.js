@@ -77,7 +77,7 @@ async function ensureCourseSemesters(code) {
 // STATE
 // ============================================================
 
-const DEGREE_CACHE_VERSION = '2026-transition-electives-v2';
+const DEGREE_CACHE_VERSION = 'multi-major-prerequisites-v3';
 if (localStorage.getItem('uq_tracker_cache_version') !== DEGREE_CACHE_VERSION) {
     localStorage.removeItem('uq_tracker_cached_degrees');
     localStorage.removeItem('uq_tracker_degree');
@@ -144,7 +144,7 @@ window.addEventListener('DOMContentLoaded', () => {
 window.refreshCascadingDropdowns = null;
 
 function initCascadingDropdowns() {
-    if (!dom.selProgram || !dom.selMajor || !dom.selMinor || !dom.selYear || !dom.selStartYear
+    if (!dom.selProgram || !dom.selMajor || !dom.selSecondMajor || !dom.selMinor || !dom.selYear || !dom.selStartYear
         || !dom.enableSummerSemesters || !dom.summerSemesterYears) return;
 
     function populateFromMap(selectEl, arrayConfig, currentId) {
@@ -170,6 +170,28 @@ function initCascadingDropdowns() {
         }
     }
 
+    function getAvailableMajors(programId, rulesYear) {
+        const baseMajors = UQ_OPTIONS.majors[programId] || [];
+        const program = UQ_OPTIONS.programs.find(item => item.id === programId);
+        const usesLegacyComputerScience = parseInt(rulesYear, 10) < 2026
+            && program?.label.includes('Computer Science');
+        if (!usesLegacyComputerScience) {
+            return program?.label === 'Computer Science'
+                ? [{ id: 'NONE', label: 'No Major' }, ...baseMajors]
+                : baseMajors;
+        }
+
+        const legacyMajors = DegreeRules.getLegacyComputerScienceMajors();
+        if (program.label === 'Computer Science') {
+            return [{ id: 'NONE', label: 'No Major' }, ...legacyMajors];
+        }
+        const merged = [...baseMajors];
+        legacyMajors.forEach(major => {
+            if (!merged.some(existing => existing.id === major.id)) merged.push(major);
+        });
+        return merged;
+    }
+
     function renderSummerYearOptions() {
         const selectedYears = new Set(
             [...dom.summerSemesterYears.querySelectorAll('input:checked')].map(input => parseInt(input.value, 10))
@@ -189,12 +211,22 @@ function initCascadingDropdowns() {
         populateFromMap(dom.selProgram, UQ_OPTIONS.programs, dom.selProgram.value);
         const selProg = dom.selProgram.value || UQ_OPTIONS.programs[0].id;
 
-        const availableMajors = UQ_OPTIONS.majors[selProg] || [];
+        const selectedRulesYear = parseInt(dom.selYear.value, 10) || Math.max(...UQ_OPTIONS.years);
+        const availableMajors = getAvailableMajors(selProg, selectedRulesYear);
         if (availableMajors.length > 0 && !availableMajors.find(m => m.id === dom.selMajor.value)) {
             dom.selMajor.value = availableMajors[0].id;
         }
         populateFromMap(dom.selMajor, availableMajors, dom.selMajor.value);
         const selMaj = dom.selMajor.value || availableMajors[0]?.id;
+
+        const availableSecondMajors = [
+            { id: 'NONE', label: 'No Second Major' },
+            ...availableMajors.filter(major => major.id !== selMaj)
+        ];
+        if (!availableSecondMajors.some(major => major.id === dom.selSecondMajor.value)) {
+            dom.selSecondMajor.value = 'NONE';
+        }
+        populateFromMap(dom.selSecondMajor, availableSecondMajors, dom.selSecondMajor.value);
 
         const availableMinors = UQ_OPTIONS.minors[selMaj] || [{ id: 'NONE', label: 'No Minor' }];
         if (availableMinors.length > 0 && !availableMinors.find(m => m.id === dom.selMinor.value)) {
@@ -236,6 +268,7 @@ function initCascadingDropdowns() {
         startBtn.addEventListener('click', async () => {
             const selProg = dom.selProgram.value || UQ_OPTIONS.programs[0].id;
             const selMaj = dom.selMajor.value || UQ_OPTIONS.majors[selProg][0].id;
+            const selSecondMaj = dom.selSecondMajor.value || 'NONE';
             const selMin = dom.selMinor.value || (UQ_OPTIONS.minors[selMaj] ? UQ_OPTIONS.minors[selMaj][0].id : 'NONE');
             const selYear = dom.selYear.value || UQ_OPTIONS.years[0];
             const selStartYear = dom.selStartYear.value || selYear;
@@ -243,10 +276,13 @@ function initCascadingDropdowns() {
                 ? [...dom.summerSemesterYears.querySelectorAll('input:checked')].map(input => parseInt(input.value, 10))
                 : [];
 
-            const majorObj = (UQ_OPTIONS.majors[selProg] || []).find(m => m.id === selMaj);
+            const selectableMajors = getAvailableMajors(selProg, selYear);
+            const majorObj = selectableMajors.find(m => m.id === selMaj);
+            const secondMajorObj = selectableMajors.find(m => m.id === selSecondMaj);
             const minorObj = (UQ_OPTIONS.minors[selMaj] || []).find(m => m.id === selMin);
 
             const majTitle = majorObj ? majorObj.label : selMaj;
+            const secondMajTitle = secondMajorObj ? secondMajorObj.label : 'No Second Major';
             const minTitle = minorObj ? minorObj.label : selMin;
 
             // Show Loading UI
@@ -273,7 +309,9 @@ function initCascadingDropdowns() {
                     minTitle,
                     selYear,
                     selStartYear,
-                    selectedSummerYears
+                    selectedSummerYears,
+                    selSecondMaj,
+                    secondMajTitle
                 );
                 
                 // Cache it
@@ -317,6 +355,7 @@ async function initApp() {
     dom.degreeSelect = document.getElementById('degreeSelect');
     dom.selProgram = document.getElementById('selProgram');
     dom.selMajor = document.getElementById('selMajor');
+    dom.selSecondMajor = document.getElementById('selSecondMajor');
     dom.selMinor = document.getElementById('selMinor');
     dom.selYear = document.getElementById('selYear');
     dom.selStartYear = document.getElementById('selStartYear');
@@ -337,6 +376,7 @@ async function initApp() {
     dom.shareBtn = document.getElementById('shareBtn');
     dom.exportBtn = document.getElementById('exportBtn');
     dom.checkOrderBtn = document.getElementById('checkOrderBtn');
+    dom.addYearBtn = document.getElementById('addYearBtn');
 
     dom.semestersGrid = document.getElementById('semestersGrid');
     dom.progressDashboard = document.getElementById('progressDashboard');
@@ -426,6 +466,7 @@ async function initApp() {
     if (dom.shareBtn) dom.shareBtn.addEventListener('click', sharePlan);
     if (dom.exportBtn) dom.exportBtn.addEventListener('click', exportPlan);
     if (dom.checkOrderBtn) dom.checkOrderBtn.addEventListener('click', checkPrerequisiteOrder);
+    if (dom.addYearBtn) dom.addYearBtn.addEventListener('click', addPlanYear);
     if (dom.themeToggleBtn) {
         dom.themeToggleBtn.addEventListener('click', () => {
             const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
@@ -535,6 +576,25 @@ async function changeDegree(newDegreeId) {
     updateHistoryControls();
 
     await fetchSemestersAndRender();
+}
+
+function addPlanYear() {
+    const degree = DEGREES[currentDegreeId];
+    if (!degree || SEMESTERS.length === 0) return;
+    const lastYear = Math.max(...SEMESTERS.map(semester => semester.year));
+    const nextYear = lastYear + 1;
+    const shortYear = nextYear.toString().slice(-2);
+    const newSemesters = [
+        { id: `sem-${shortYear}-1`, name: `${nextYear} Sem 1`, year: nextYear, semNum: 1, term: 'semester-1' },
+        { id: `sem-${shortYear}-2`, name: `${nextYear} Sem 2`, year: nextYear, semNum: 2, term: 'semester-2' }
+    ];
+    degree.semesters.push(...newSemesters);
+    degree.years = `${degree.startYear || SEMESTERS[0].year} to ${nextYear}`;
+    SEMESTERS = degree.semesters;
+    localStorage.setItem('uq_tracker_cached_degrees', JSON.stringify(DEGREES));
+    updateUIDegreeTitles();
+    renderSemesters();
+    showShareToast(`${nextYear} added`);
 }
 
 // ============================================================
@@ -1369,17 +1429,32 @@ function getSemesterIndexForCourse(code) {
     return semesterId ? SEMESTERS.findIndex(sem => sem.id === semesterId) : -1;
 }
 
+function getPrerequisiteOptions(course) {
+    if (Array.isArray(course?.prereqOptions) && course.prereqOptions.length > 0) {
+        return course.prereqOptions.filter(option => Array.isArray(option) && option.length > 0);
+    }
+    return Array.isArray(course?.prereqs) && course.prereqs.length > 0
+        ? [course.prereqs]
+        : [];
+}
+
+function choosePlannedPrerequisiteOption(course, plannedSet) {
+    const options = getPrerequisiteOptions(course);
+    return options.find(option => option.every(code => plannedSet.has(code))) || null;
+}
+
 function findSemesterPrerequisiteViolations(plannedCodes) {
     const plannedSet = new Set(plannedCodes);
     const violations = [];
 
     plannedCodes.forEach(code => {
         const course = getCourseInfo(code);
-        if (!course || !Array.isArray(course.prereqs)) return;
+        if (!course) return;
 
         const courseSemesterIndex = getSemesterIndexForCourse(code);
-        course.prereqs.forEach(prereqCode => {
-            if (!plannedSet.has(prereqCode)) return;
+        const selectedOption = choosePlannedPrerequisiteOption(course, plannedSet);
+        if (!selectedOption) return;
+        selectedOption.forEach(prereqCode => {
 
             const prereqSemesterIndex = getSemesterIndexForCourse(prereqCode);
             if (prereqSemesterIndex < 0 || courseSemesterIndex < 0 || prereqSemesterIndex >= courseSemesterIndex) {
@@ -1811,26 +1886,26 @@ function handleDrop(e) {
             }
         }
 
-        if (courseInfo && Array.isArray(courseInfo.prereqs) && courseInfo.prereqs.length > 0 && targetSem) {
+        if (courseInfo && getPrerequisiteOptions(courseInfo).length > 0 && targetSem) {
             const targetSemIndex = SEMESTERS.findIndex(s => s.id === targetId);
-            for (const prereqCode of courseInfo.prereqs) {
-                const prereqPlacement = state.placements[prereqCode];
-                let prereqSemId = null;
+            const prerequisiteSatisfied = getPrerequisiteOptions(courseInfo).some(option =>
+                option.every(prereqCode => {
+                    const prereqPlacement = state.placements[prereqCode];
+                    const prereqSemId = Array.isArray(prereqPlacement)
+                        ? (prereqPlacement[0] || null)
+                        : ((typeof prereqPlacement === 'string' && prereqPlacement !== 'unassigned') ? prereqPlacement : null);
+                    const prereqSemIndex = prereqSemId ? SEMESTERS.findIndex(s => s.id === prereqSemId) : -1;
+                    return prereqSemIndex >= 0 && prereqSemIndex < targetSemIndex;
+                })
+            );
 
-                if (Array.isArray(prereqPlacement)) {
-                    prereqSemId = prereqPlacement[0] || null;
-                } else if (typeof prereqPlacement === 'string' && prereqPlacement !== 'unassigned') {
-                    prereqSemId = prereqPlacement;
-                }
-
-                const prereqSemIndex = prereqSemId ? SEMESTERS.findIndex(s => s.id === prereqSemId) : -1;
-                const prereqSatisfied = prereqSemIndex >= 0 && prereqSemIndex < targetSemIndex;
-
-                if (!prereqSatisfied) {
-                    if (!confirm(`${code} has prerequisite ${prereqCode} which is not completed before ${targetSem.name}. Place anyway?`)) {
-                        clearDropIndicator();
-                        return;
-                    }
+            if (!prerequisiteSatisfied) {
+                const optionText = getPrerequisiteOptions(courseInfo)
+                    .map(option => option.join(' + '))
+                    .join(' OR ');
+                if (!confirm(`${code} needs one prerequisite option completed before ${targetSem.name}: ${optionText}. Place anyway?`)) {
+                    clearDropIndicator();
+                    return;
                 }
             }
         }

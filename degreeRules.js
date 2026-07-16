@@ -10,10 +10,34 @@
         SOFTWARE_EXTENSION: 'Major Extension',
         SOFTWARE_ADVANCED: 'Major Advanced Elective',
         MAJOR_ELECTIVE: 'Major Elective',
+        SECOND_MAJOR_COMPULSORY: 'Second Major Compulsory',
+        SECOND_MAJOR_ELECTIVE: 'Second Major Elective',
         MINOR_COMPULSORY: 'Minor Compulsory',
         MINOR_ELECTIVE: 'Minor Elective',
         OTHER_ELECTIVE: 'Other Elective'
     });
+
+    const LEGACY_PROGRAM_IDS = Object.freeze({
+        '2559': '2451',
+        '2560': '2481',
+        '2561': '2482',
+        '2562': '2483',
+        '2563': '2463',
+        '2564': '2464',
+        '2565': '2524',
+        '2566': '2484',
+        '2567': '2497',
+        '2568': '2480',
+        '2569': '2489'
+    });
+
+    const LEGACY_COMPUTER_SCIENCE_MAJORS = Object.freeze([
+        { id: 'CYBERC2451', label: 'Cyber Security Major' },
+        { id: 'DATASC2451', label: 'Data Science Major' },
+        { id: 'MACHDC2451', label: 'Machine Learning Major' },
+        { id: 'PROLAC2451', label: 'Programming Languages Major' },
+        { id: 'SCCOMC2451', label: 'Scientific Computing Major' }
+    ]);
 
     function getAvailableStartYears(rulesYear) {
         const year = parseInt(rulesYear, 10);
@@ -69,6 +93,80 @@
         return alias || selectedPlanId;
     }
 
+    function resolveProgramId(programId, rulesYear) {
+        return parseInt(rulesYear, 10) < 2026
+            ? (LEGACY_PROGRAM_IDS[programId] || programId)
+            : programId;
+    }
+
+    function getLegacyComputerScienceMajors() {
+        return LEGACY_COMPUTER_SCIENCE_MAJORS.map(major => ({ ...major }));
+    }
+
+    function prerequisiteExpressionToOptions(text) {
+        const source = String(text || '').toUpperCase();
+        const tokens = source.match(/[A-Z]{4}\d{4}|\(|\)|\bAND\b|\bOR\b/g) || [];
+        if (tokens.length === 0) return [];
+        let position = 0;
+
+        function parsePrimary() {
+            const token = tokens[position++];
+            if (!token) return null;
+            if (/^[A-Z]{4}\d{4}$/.test(token)) return { type: 'code', code: token };
+            if (token === '(') {
+                const expression = parseOr();
+                if (tokens[position] === ')') position += 1;
+                return expression;
+            }
+            return null;
+        }
+
+        function parseAnd() {
+            let left = parsePrimary();
+            while (tokens[position] === 'AND') {
+                position += 1;
+                const right = parsePrimary();
+                if (left && right) left = { type: 'and', left, right };
+            }
+            return left;
+        }
+
+        function parseOr() {
+            let left = parseAnd();
+            while (tokens[position] === 'OR') {
+                position += 1;
+                const right = parseAnd();
+                if (left && right) left = { type: 'or', left, right };
+            }
+            return left;
+        }
+
+        function toOptions(node) {
+            if (!node) return [];
+            if (node.type === 'code') return [[node.code]];
+            if (node.type === 'or') return [...toOptions(node.left), ...toOptions(node.right)];
+            if (node.type === 'and') {
+                const leftOptions = toOptions(node.left);
+                const rightOptions = toOptions(node.right);
+                return leftOptions.flatMap(left =>
+                    rightOptions.map(right => unique([...left, ...right]))
+                );
+            }
+            return [];
+        }
+
+        const parsed = parseOr();
+        let options = toOptions(parsed);
+        const allCodes = unique(source.match(/[A-Z]{4}\d{4}/g) || []);
+        if (position < tokens.length || options.length === 0) options = [allCodes];
+        return options
+            .map(option => unique(option))
+            .filter(option => option.length > 0)
+            .filter((option, index, all) =>
+                all.findIndex(other => other.join('|') === option.join('|')) === index
+            );
+    }
+
     function resolveCourseCategories(code, sourceCategories, context = {}) {
         let categories = unique(sourceCategories);
 
@@ -99,9 +197,12 @@
         CATEGORIES,
         buildSemesters,
         getAvailableStartYears,
+        getLegacyComputerScienceMajors,
         getStudyYears,
         isSoftwareAiTransition,
+        prerequisiteExpressionToOptions,
         resolvePlanId,
+        resolveProgramId,
         resolveCourseCategories
     };
 });

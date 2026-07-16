@@ -5,8 +5,11 @@ const {
     CATEGORIES,
     buildSemesters,
     getAvailableStartYears,
+    getLegacyComputerScienceMajors,
     getStudyYears,
+    prerequisiteExpressionToOptions,
     resolvePlanId,
+    resolveProgramId,
     resolveCourseCategories
 } = require('./degreeRules');
 
@@ -37,6 +40,28 @@ test('resolves combined-degree plan aliases from the program requirements', () =
         'PURMAC2460',
         'STATSA2460'
     ]), 'PURMAC2460');
+});
+
+test('uses legacy Computer Science program and major rules before 2026', () => {
+    assert.equal(resolveProgramId('2569', 2024), '2489');
+    assert.equal(resolveProgramId('2559', 2025), '2451');
+    assert.equal(resolveProgramId('2559', 2026), '2559');
+    assert.ok(getLegacyComputerScienceMajors().some(major => major.id === 'SCCOMC2451'));
+});
+
+test('preserves prerequisite alternatives instead of treating every code as mandatory', () => {
+    assert.deepEqual(
+        prerequisiteExpressionToOptions('CSSE2002 and (MATH1061 or MATH1081 or MATH1051)'),
+        [
+            ['CSSE2002', 'MATH1061'],
+            ['CSSE2002', 'MATH1081'],
+            ['CSSE2002', 'MATH1051']
+        ]
+    );
+    assert.deepEqual(
+        prerequisiteExpressionToOptions('(CSSE1001 or CSSE7030) or ENGG1001'),
+        [['CSSE1001'], ['CSSE7030'], ['ENGG1001']]
+    );
 });
 
 test('assigns COMP3400 to Software compulsory for the 2026 AI transition', () => {

@@ -35,12 +35,46 @@ const PrerequisiteGraph = (function (factory) {
                 code,
                 course,
                 index,
-                prereqs: uniqueNormalizedCodes(course.prereqs)
+                prereqs: uniqueNormalizedCodes(course.prereqs),
+                prereqOptions: normalizePrerequisiteOptions(course)
             });
             orderedCodes.push(code);
         });
 
         return { byCode, orderedCodes };
+    }
+
+    function normalizePrerequisiteOptions(course) {
+        const options = Array.isArray(course?.prereqOptions)
+            ? course.prereqOptions
+                .map(option => uniqueNormalizedCodes(option))
+                .filter(option => option.length > 0)
+            : [];
+        if (options.length > 0) return options;
+        const prereqs = uniqueNormalizedCodes(course?.prereqs);
+        return prereqs.length > 0 ? [prereqs] : [];
+    }
+
+    function selectPrerequisiteOption(node, byCode, selectedSet, requireSelectedPrerequisites) {
+        if (!node || node.prereqOptions.length === 0) {
+            return { selected: [], missing: [] };
+        }
+
+        const evaluated = node.prereqOptions.map(option => {
+            const missing = option.filter(code =>
+                !byCode.has(code) || (requireSelectedPrerequisites && !selectedSet.has(code))
+            );
+            return { option, missing };
+        });
+        const satisfied = evaluated
+            .filter(result => result.missing.length === 0)
+            .sort((left, right) => left.option.length - right.option.length)[0];
+        if (satisfied) return { selected: satisfied.option, missing: [] };
+
+        const closest = evaluated.sort((left, right) =>
+            left.missing.length - right.missing.length || left.option.length - right.option.length
+        )[0];
+        return { selected: [], missing: closest?.missing || [] };
     }
 
     function canonicalCycleKey(cycle) {
@@ -118,21 +152,23 @@ const PrerequisiteGraph = (function (factory) {
 
         selectedCodes.forEach(code => {
             const node = byCode.get(code);
-            node.prereqs.forEach(prereqCode => {
+            const prerequisiteChoice = selectPrerequisiteOption(
+                node,
+                byCode,
+                selectedSet,
+                requireSelectedPrerequisites
+            );
+            prerequisiteChoice.missing.forEach(prereqCode => {
                 const prereqExists = byCode.has(prereqCode);
-                const prereqSelected = selectedSet.has(prereqCode);
+                missingPrerequisites.push({
+                    course: code,
+                    prereq: prereqCode,
+                    reason: prereqExists ? 'not-selected' : 'not-found'
+                });
+            });
 
-                if (!prereqExists || (requireSelectedPrerequisites && !prereqSelected)) {
-                    missingPrerequisites.push({
-                        course: code,
-                        prereq: prereqCode,
-                        reason: prereqExists ? 'not-selected' : 'not-found'
-                    });
-                    return;
-                }
-
-                if (!prereqSelected) return;
-
+            prerequisiteChoice.selected.forEach(prereqCode => {
+                if (!selectedSet.has(prereqCode)) return;
                 dependents.get(prereqCode).push(code);
                 indegree.set(code, indegree.get(code) + 1);
                 prereqMap.get(code).push(prereqCode);

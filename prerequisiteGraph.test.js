@@ -57,3 +57,45 @@ test('can require selected plans to include their prerequisites', () => {
         { course: 'COMP2000', prereq: 'COMP1000', reason: 'not-selected' }
     ]);
 });
+
+test('accepts one fully selected prerequisite alternative without flagging the others', () => {
+    const result = sortCoursesByPrerequisites([
+        { code: 'CSSE1001', prereqs: [] },
+        { code: 'ENGG1001', prereqs: [] },
+        {
+            code: 'COMP3702',
+            prereqs: ['CSSE1001', 'ENGG1001'],
+            prereqOptions: [['CSSE1001'], ['ENGG1001']]
+        }
+    ], {
+        selectedCodes: ['ENGG1001', 'COMP3702'],
+        requireSelectedPrerequisites: true
+    });
+
+    assert.equal(result.valid, true);
+    assert.deepEqual(result.missingPrerequisites, []);
+    assert.deepEqual(result.order, ['ENGG1001', 'COMP3702']);
+});
+
+test('reports only the closest unsatisfied prerequisite option', () => {
+    const result = sortCoursesByPrerequisites([
+        { code: 'CSSE2002', prereqs: [] },
+        { code: 'MATH1061', prereqs: [] },
+        { code: 'MATH1081', prereqs: [] },
+        {
+            code: 'COMP3506',
+            prereqs: ['CSSE2002', 'MATH1061', 'MATH1081'],
+            prereqOptions: [
+                ['CSSE2002', 'MATH1061'],
+                ['CSSE2002', 'MATH1081']
+            ]
+        }
+    ], {
+        selectedCodes: ['CSSE2002', 'COMP3506'],
+        requireSelectedPrerequisites: true
+    });
+
+    assert.deepEqual(result.missingPrerequisites, [
+        { course: 'COMP3506', prereq: 'MATH1061', reason: 'not-selected' }
+    ]);
+});
