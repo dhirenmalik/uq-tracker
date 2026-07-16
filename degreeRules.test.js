@@ -4,6 +4,7 @@ const test = require('node:test');
 const {
     CATEGORIES,
     getAvailableStartYears,
+    resolvePlanId,
     resolveCourseCategories
 } = require('./degreeRules');
 
@@ -15,6 +16,14 @@ const transition = {
 
 test('allows a rules year to be back-shifted by up to two years', () => {
     assert.deepEqual(getAvailableStartYears(2026), [2026, 2025, 2024]);
+});
+
+test('resolves combined-degree plan aliases from the program requirements', () => {
+    assert.equal(resolvePlanId('PURMAC2567', [
+        'APPMAC2460',
+        'PURMAC2460',
+        'STATSA2460'
+    ]), 'PURMAC2460');
 });
 
 test('assigns COMP3400 to Software compulsory for the 2026 AI transition', () => {

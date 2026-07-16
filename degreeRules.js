@@ -4,10 +4,12 @@
     if (root) root.DegreeRules = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
     const CATEGORIES = Object.freeze({
-        PROGRAM_CORE: 'BE Core',
-        SOFTWARE_COMPULSORY: 'Software Compulsory',
-        SOFTWARE_EXTENSION: 'Software Extension',
-        SOFTWARE_ADVANCED: 'Software Advanced Elective',
+        PROGRAM_CORE: 'Program Core',
+        PROGRAM_ELECTIVE: 'Program Elective',
+        SOFTWARE_COMPULSORY: 'Major Compulsory',
+        SOFTWARE_EXTENSION: 'Major Extension',
+        SOFTWARE_ADVANCED: 'Major Advanced Elective',
+        MAJOR_ELECTIVE: 'Major Elective',
         MINOR_COMPULSORY: 'Minor Compulsory',
         MINOR_ELECTIVE: 'Minor Elective',
         OTHER_ELECTIVE: 'Other Elective'
@@ -27,6 +29,17 @@
 
     function unique(values) {
         return [...new Set((values || []).filter(Boolean))];
+    }
+
+    function resolvePlanId(selectedPlanId, availablePlanIds) {
+        if (!selectedPlanId || selectedPlanId === 'NONE') return selectedPlanId;
+        const available = unique(availablePlanIds);
+        if (available.includes(selectedPlanId)) return selectedPlanId;
+
+        const selectedPrefix = selectedPlanId.match(/^[A-Z]+/)?.[0];
+        if (!selectedPrefix) return selectedPlanId;
+        const alias = available.find(planId => planId.match(/^[A-Z]+/)?.[0] === selectedPrefix);
+        return alias || selectedPlanId;
     }
 
     function resolveCourseCategories(code, sourceCategories, context = {}) {
@@ -59,6 +72,7 @@
         CATEGORIES,
         getAvailableStartYears,
         isSoftwareAiTransition,
+        resolvePlanId,
         resolveCourseCategories
     };
 });

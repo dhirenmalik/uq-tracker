@@ -58,33 +58,48 @@ async function scrapeCourseDetailsDynamically(code) {
 }
 
 async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTitle, rulesYear, startYear = rulesYear) {
+    const requestedRulesYear = parseInt(rulesYear, 10);
+    const candidateRulesYears = UQ_OPTIONS.years
+        .map(Number)
+        .filter(year => year >= requestedRulesYear && year <= requestedRulesYear + 2)
+        .sort((a, b) => a - b);
 
-    const urls = {
-        prog: `https://programs-courses.uq.edu.au/requirements/program/${programId}/${rulesYear}`,
-        plan: majorId !== 'NONE' ? `https://programs-courses.uq.edu.au/requirements/plan/${majorId}/${rulesYear}` : null,
-        minor: minorId !== 'NONE' ? `https://programs-courses.uq.edu.au/requirements/plan/${minorId}/${rulesYear}` : null
-    };
-
-    const [progHtml, planHtml, minorHtml] = await Promise.all([
-        fetchUQRaw(urls.prog),
-        urls.plan ? fetchUQRaw(urls.plan) : null,
-        urls.minor ? fetchUQRaw(urls.minor) : null
-    ]);
-
-    const progData = extractAppData(progHtml);
-    const planData = urls.plan ? extractAppData(planHtml) : null;
-    const minorData = urls.minor ? extractAppData(minorHtml) : null;
+    let effectiveRulesYear = requestedRulesYear;
+    let progData = null;
+    for (const candidateYear of candidateRulesYears) {
+        const progUrl = `https://programs-courses.uq.edu.au/requirements/program/${programId}/${candidateYear}`;
+        progData = extractAppData(await fetchUQRaw(progUrl));
+        if (progData) {
+            effectiveRulesYear = candidateYear;
+            break;
+        }
+    }
 
     if (!progData) {
-        throw new Error("Could not parse Program HTML from UQ.");
-    }
-    
-    if (urls.plan && !planData) {
-        throw new Error(`The major ${majorTitle} (${majorId}) does not seem to exist or be offered for this program in ${rulesYear}.`);
+        throw new Error(`UQ does not publish requirements for this program from ${requestedRulesYear} to ${requestedRulesYear + 2}.`);
     }
 
-    if (urls.minor && !minorData) {
-        throw new Error(`The minor ${minorTitle} (${minorId}) does not seem to exist or be offered for this program in ${rulesYear}.`);
+    const programRuleJson = JSON.stringify(progData.programRequirements || {});
+    const availablePlanIds = [...new Set(programRuleJson.match(/[A-Z]{5,}\d{4}/g) || [])];
+    const effectiveMajorId = DegreeRules.resolvePlanId(majorId, availablePlanIds);
+    const effectiveMinorId = DegreeRules.resolvePlanId(minorId, availablePlanIds);
+    const planUrl = effectiveMajorId !== 'NONE'
+        ? `https://programs-courses.uq.edu.au/requirements/plan/${effectiveMajorId}/${effectiveRulesYear}`
+        : null;
+    const minorUrl = effectiveMinorId !== 'NONE'
+        ? `https://programs-courses.uq.edu.au/requirements/plan/${effectiveMinorId}/${effectiveRulesYear}`
+        : null;
+    const [planData, minorData] = await Promise.all([
+        planUrl ? fetchUQRaw(planUrl).then(extractAppData) : null,
+        minorUrl ? fetchUQRaw(minorUrl).then(extractAppData) : null
+    ]);
+
+    if (planUrl && !planData) {
+        throw new Error(`The major ${majorTitle} (${effectiveMajorId}) does not seem to exist or be offered for this program in ${effectiveRulesYear}.`);
+    }
+
+    if (minorUrl && !minorData) {
+        throw new Error(`The minor ${minorTitle} (${effectiveMinorId}) does not seem to exist or be offered for this program in ${effectiveRulesYear}.`);
     }
 
     const courses = [];
@@ -162,11 +177,13 @@ async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTi
     }
 
     const categories = DegreeRules.CATEGORIES;
-    const ruleContext = { rulesYear, majorId, minorId };
+    const ruleContext = { rulesYear: effectiveRulesYear, majorId, minorId };
     let coreLabel = "BE Core";
     let coreTarget = 0;
+    let programElectiveTarget = 0;
     let majorCoreLabel = `${majorTitle} Compulsory`;
     let majorCoreTarget = 0;
+    let majorElectiveTarget = 0;
     let majorExtensionTarget = 0;
     let majorAdvancedTarget = 0;
 
@@ -186,12 +203,38 @@ async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTi
     const progRules = progData.programRequirements.payload.components.find(c => c.componentIntegrationIdentifier === 'PROGRAM_RULES')?.payload;
     if (progRules) {
         const selectedOptionsTitle = `${majorTitle} Plan Options`;
+        const selectedOptionsPart = progRules.body.find(part => part.header?.title === selectedOptionsTitle);
+
+        if (!selectedOptionsPart) {
+            coreLabel = 'Program Core';
+            function collectNestedTargets(node) {
+                if (Array.isArray(node)) {
+                    node.forEach(collectNestedTargets);
+                    return;
+                }
+                if (!node || typeof node !== 'object') return;
+                const title = node.header?.title?.toLowerCase() || '';
+                const n = getRuleN(node);
+                if (n > 0 && title.includes('core')) coreTarget += n;
+                if (n > 0 && title.includes('elective')) programElectiveTarget += n;
+                collectNestedTargets(node.body);
+            }
+            collectNestedTargets(progRules.body);
+            traverseTree(progRules.body, path => {
+                const s = path.toLowerCase();
+                if (s.includes('major list') || s.includes('minor list')) return null;
+                if (s.includes('core')) return categories.PROGRAM_CORE;
+                if (s.includes('elective')) return categories.PROGRAM_ELECTIVE;
+                return null;
+            });
+        }
+
         progRules.body.forEach((part, idx) => {
             const title = part.header?.title || '';
             const lTitle = title.toLowerCase();
             const n = getRuleN(part);
 
-            if (idx === 0 || lTitle.includes('core')) {
+            if (selectedOptionsPart && (idx === 0 || lTitle.includes('core'))) {
                 if (!coreLabel || coreLabel === 'BE Core') {
                     coreLabel = title.replace(/ courses/gi, '').replace(/hons\)/gi, 'Hons)') || 'Core';
                 }
@@ -241,7 +284,10 @@ async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTi
                     majorCoreTarget += n;
                     traverseTree(part.body || [], () => categories.SOFTWARE_COMPULSORY);
                 } else if (lTitle.includes('elective')) {
-                    traverseTree(part.body || [], () => categories.OTHER_ELECTIVE);
+                    if (majorId !== 'SOFTWE2455') majorElectiveTarget += n;
+                    traverseTree(part.body || [], () =>
+                        majorId === 'SOFTWE2455' ? categories.OTHER_ELECTIVE : categories.MAJOR_ELECTIVE
+                    );
                 }
             });
         }
@@ -310,10 +356,22 @@ async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTi
     const reqs = [
         { id: 'total', name: 'Total Units', target: beTotalMax, validCats: [], color: 'var(--accent-color)' },
         { id: 'core', name: coreLabel, target: coreTarget, validCats: [categories.PROGRAM_CORE], color: 'var(--cat-core)' },
-        { id: 'majorcore', name: majorCoreLabel, target: majorCoreTarget, validCats: [categories.SOFTWARE_COMPULSORY], color: 'var(--cat-secore)' },
-        { id: 'majorext', name: `${majorTitle} Extension`, target: majorExtensionTarget, validCats: [categories.SOFTWARE_EXTENSION], color: 'var(--cat-seext)' },
-        { id: 'majoradvanced', name: `${majorTitle} Advanced Electives`, target: majorAdvancedTarget, validCats: [categories.SOFTWARE_ADVANCED], color: 'var(--cat-seext)' }
+        { id: 'majorcore', name: majorCoreLabel, target: majorCoreTarget, validCats: [categories.SOFTWARE_COMPULSORY], color: 'var(--cat-secore)' }
     ];
+
+    if (majorExtensionTarget > 0) {
+        reqs.push({ id: 'majorext', name: `${majorTitle} Extension`, target: majorExtensionTarget, validCats: [categories.SOFTWARE_EXTENSION], color: 'var(--cat-seext)' });
+    }
+    if (majorAdvancedTarget > 0) {
+        reqs.push({ id: 'majoradvanced', name: `${majorTitle} Advanced Electives`, target: majorAdvancedTarget, validCats: [categories.SOFTWARE_ADVANCED], color: 'var(--cat-seext)' });
+    }
+
+    if (programElectiveTarget > 0) {
+        reqs.push({ id: 'programelectives', name: 'Program Electives', target: programElectiveTarget, validCats: [categories.PROGRAM_ELECTIVE], color: 'var(--cat-elec)' });
+    }
+    if (majorElectiveTarget > 0) {
+        reqs.push({ id: 'majorelectives', name: `${majorTitle} Electives`, target: majorElectiveTarget, validCats: [categories.MAJOR_ELECTIVE], color: 'var(--cat-seext)' });
+    }
 
     if (minorId !== 'NONE') {
         reqs.push(
@@ -322,7 +380,7 @@ async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTi
         );
     }
 
-    const allocatedTargets = coreTarget + majorCoreTarget + majorExtensionTarget + majorAdvancedTarget
+    const allocatedTargets = coreTarget + programElectiveTarget + majorCoreTarget + majorElectiveTarget + majorExtensionTarget + majorAdvancedTarget
         + minorCompulsoryTarget + minorElectiveTarget;
     const electiveTarget = Math.max(0, beTotalMax - allocatedTargets);
     reqs.push({ id: 'electives', name: 'Other / Program Electives', target: electiveTarget, validCats: [categories.OTHER_ELECTIVE], color: 'var(--cat-elec)' });
@@ -337,13 +395,14 @@ async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTi
     }
 
     return {
-        id: `${programId}_${majorId}_${minorId}_${rulesYear}_${startYear}`,
+        id: `${programId}_${majorId}_${minorId}_${effectiveRulesYear}_${startYear}`,
         title: `${majorTitle}${minorId !== 'NONE' ? ` (${minorTitle})` : ''}`,
         program: programId,
         major: majorId,
         minor: minorId,
-        year: rulesYear,
-        rulesYear: parseInt(rulesYear, 10),
+        year: effectiveRulesYear,
+        rulesYear: effectiveRulesYear,
+        requestedRulesYear,
         startYear: sy,
         programTitle: progData.title || "Bachelor of Engineering (Honours)",
         majorTitle: majorTitle,

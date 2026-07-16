@@ -250,8 +250,11 @@ function initCascadingDropdowns() {
                 localStorage.setItem('uq_tracker_cached_degrees', JSON.stringify(DEGREES));
                 
                 // Finalize
-                changeDegree(newConfig.id);
+                await changeDegree(newConfig.id);
                 document.getElementById('onboardingScreen').classList.add('hidden');
+                if (newConfig.requestedRulesYear && newConfig.requestedRulesYear !== newConfig.rulesYear) {
+                    showShareToast(`${newConfig.requestedRulesYear} rules unavailable; loaded ${newConfig.rulesYear} rules`);
+                }
             } catch(e) {
                 console.error(e);
                 alert("Failed to scrape UQ degree! The proxy might be down or UQ blocked it. " + e.message);
