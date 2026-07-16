@@ -44,6 +44,13 @@ async function scrapeCourseDetailsDynamically(code) {
         html.match(/id=["']course-title["'][^>]*>([\s\S]*?)<\/[^>]+>/i)?.[1]
         || html.match(/<title>([\s\S]*?)<\/title>/i)?.[1]
     )?.replace(/\s*-\s*my\.UQ.*$/i, '').replace(new RegExp(`\\s*\\(${code}\\)\\s*$`, 'i'), '') || code;
+    const units = Number(stripHtmlAndNormalize(
+        html.match(/id=["']course-units["'][^>]*>([\s\S]*?)<\/[^>]+>/i)?.[1]
+    ));
+    const duration = stripHtmlAndNormalize(
+        html.match(/id=["']course-duration["'][^>]*>([\s\S]*?)<\/[^>]+>/i)?.[1]
+    ) || '';
+    const isCurrentlyOffered = !/course is not currently offered/i.test(html);
 
     // Extract semester offerings from course page
     // Matches patterns like: "Semester 1, 2026" or "Semester 2, 2025"
@@ -58,7 +65,15 @@ async function scrapeCourseDetailsDynamically(code) {
     }
     for (const y in semesters) semesters[y].sort();
 
-    courseCache[code] = { name: courseName, prereqs, prereqOptions, semesters };
+    courseCache[code] = {
+        name: courseName,
+        units: Number.isFinite(units) ? units : null,
+        duration,
+        isCurrentlyOffered,
+        prereqs,
+        prereqOptions,
+        semesters
+    };
     return courseCache[code];
 }
 
@@ -242,7 +257,7 @@ async function scrapeLiveDegree(
                 if (!node || typeof node !== 'object') return;
                 const title = node.header?.title?.toLowerCase() || '';
                 const n = getRuleN(node);
-                if (n > 0 && title.includes('core')) coreTarget += n;
+                if (n > 0 && (title.includes('core') || title.includes('capstone'))) coreTarget += n;
                 if (n > 0 && title.includes('elective')) programElectiveTarget += n;
                 collectNestedTargets(node.body);
             }
@@ -250,7 +265,7 @@ async function scrapeLiveDegree(
             traverseTree(progRules.body, path => {
                 const s = path.toLowerCase();
                 if (s.includes('major list') || s.includes('minor list')) return null;
-                if (s.includes('core')) return categories.PROGRAM_CORE;
+                if (s.includes('core') || s.includes('capstone')) return categories.PROGRAM_CORE;
                 if (s.includes('elective')) return categories.PROGRAM_ELECTIVE;
                 return null;
             });
@@ -426,6 +441,8 @@ async function scrapeLiveDegree(
             const details = detailsBatch[index] || {};
             const course = courseByCode.get(code);
             if (!course) return;
+            if (Number.isFinite(details.units) && details.units >= 0) course.units = details.units;
+            if (/two semesters/i.test(details.duration || '')) course.isYearLong = true;
             course.prereqs = details.prereqs || [];
             course.prereqOptions = details.prereqOptions || [];
             if (details.semesters && Object.keys(details.semesters).length > 0) {
@@ -454,6 +471,15 @@ async function scrapeLiveDegree(
     for (const course of realCourses) {
         const details = courseCache[course.code];
         if ((course.isPrerequisiteOnly || course.isSupplemental) && details?.name) course.name = details.name;
+        if (course.isPrerequisiteOnly && details) {
+            const studyEndYear = parseInt(startYear, 10) + 5;
+            const hasRelevantOffering = Object.keys(details.semesters || {})
+                .map(Number)
+                .some(year => year >= parseInt(startYear, 10) && year <= studyEndYear);
+            course.hiddenFromCatalog = details.units === 0
+                || details.isCurrentlyOffered === false
+                || !hasRelevantOffering;
+        }
     }
 
     // FORMAT UI OUTPUT

@@ -66,7 +66,7 @@ async function ensureCourseSemesters(code) {
 // STATE
 // ============================================================
 
-const DEGREE_CACHE_VERSION = 'course-equivalencies-v4';
+const DEGREE_CACHE_VERSION = 'catalog-units-capstones-v5';
 if (localStorage.getItem('uq_tracker_cache_version') !== DEGREE_CACHE_VERSION) {
     localStorage.removeItem('uq_tracker_cached_degrees');
     localStorage.removeItem('uq_tracker_degree');
@@ -1080,6 +1080,7 @@ function renderCoursesTab() {
     dom.coursesGrid.innerHTML = '';
 
     state.courses.forEach(c => {
+        if (c.hiddenFromCatalog) return;
         // Handle shortlist filter — exclude courses already in the plan
         if (state.activeFilter === 'Shortlist') {
             const inPlan = !!state.placements[c.code] && state.placements[c.code] !== 'unassigned';
@@ -1275,7 +1276,6 @@ function showSemesterPicker(code, anchorEl) {
             });
 
             const alreadyAdded = placedCodes.includes(code);
-            const isFull = units >= 8;
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'strict-btn';
@@ -1286,13 +1286,8 @@ function showSemesterPicker(code, anchorEl) {
                 btn.disabled = true;
                 btn.style.color = 'var(--disabled-color)';
                 btn.style.borderColor = 'var(--disabled-color)';
-            } else if (isFull) {
-                btn.textContent = `${termLabel} (Full)`;
-                btn.disabled = true;
-                btn.style.color = 'var(--disabled-color)';
-                btn.style.borderColor = 'var(--disabled-color)';
             } else {
-                btn.textContent = termLabel;
+                btn.textContent = units >= 8 ? `${termLabel} (${units} U)` : termLabel;
                 btn.addEventListener('click', (e) => {
                     e.stopPropagation();
 
