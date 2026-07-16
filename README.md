@@ -8,6 +8,8 @@ Live app: [uqtracker.vercel.app](https://uqtracker.vercel.app)
 - **Drag & drop:** Move courses from the catalog straight into your semesters.
 - **Prereq checking:** Hovering over a course highlights its prerequisites and dependents.
 - **Progress tracking:** Calculates remaining units for your core, AI minor, and electives.
+- **Transition plans:** Use a rules year with a start year up to two years earlier, including the 2026 Software Engineering + AI transition rules.
+- **Single-course allocation:** Courses shared by elective lists can be assigned to exactly one requirement bucket.
 - **Availability checking:** Pulls data to show if a course is offered in Sem 1, Sem 2, or both.
 - **State management:** Auto-saves in the browser and supports undo/redo.
 - **Share & Export:** Share a link to your plan or export it as an image.

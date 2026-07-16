@@ -99,6 +99,7 @@ let state = {
     courses: [...COURSES],
     placements: {},
     semesterOrder: {},
+    allocations: {},
     activeFilter: 'All',
     searchQuery: '',
     shortlist: [],
@@ -136,7 +137,7 @@ window.addEventListener('DOMContentLoaded', () => {
 window.refreshCascadingDropdowns = null;
 
 function initCascadingDropdowns() {
-    if (!dom.selProgram || !dom.selMajor || !dom.selMinor || !dom.selYear) return;
+    if (!dom.selProgram || !dom.selMajor || !dom.selMinor || !dom.selYear || !dom.selStartYear) return;
 
     function populateFromMap(selectEl, arrayConfig, currentId) {
         selectEl.innerHTML = '';
@@ -187,9 +188,16 @@ function initCascadingDropdowns() {
         if (dom.selYear.options.length > 0) {
             dom.selYear.disabled = false;
         }
+
+        const rulesYear = parseInt(dom.selYear.value, 10);
+        const availableStartYears = DegreeRules.getAvailableStartYears(rulesYear);
+        if (!availableStartYears.includes(parseInt(dom.selStartYear.value, 10))) {
+            dom.selStartYear.value = rulesYear;
+        }
+        populateFromMap(dom.selStartYear, availableStartYears, dom.selStartYear.value);
     };
 
-    [dom.selProgram, dom.selMajor, dom.selMinor].forEach(el => {
+    [dom.selProgram, dom.selMajor, dom.selMinor, dom.selYear].forEach(el => {
         el.addEventListener('change', () => {
             window.refreshCascadingDropdowns();
         });
@@ -204,6 +212,7 @@ function initCascadingDropdowns() {
             const selMaj = dom.selMajor.value || UQ_OPTIONS.majors[selProg][0].id;
             const selMin = dom.selMinor.value || (UQ_OPTIONS.minors[selMaj] ? UQ_OPTIONS.minors[selMaj][0].id : 'NONE');
             const selYear = dom.selYear.value || UQ_OPTIONS.years[0];
+            const selStartYear = dom.selStartYear.value || selYear;
 
             const majorObj = (UQ_OPTIONS.majors[selProg] || []).find(m => m.id === selMaj);
             const minorObj = (UQ_OPTIONS.minors[selMaj] || []).find(m => m.id === selMin);
@@ -227,7 +236,7 @@ function initCascadingDropdowns() {
 
             try {
                 // Call scraper.js explicitly
-                const newConfig = await scrapeLiveDegree(majTitle, selProg, selMaj, selMin, minTitle, selYear);
+                const newConfig = await scrapeLiveDegree(majTitle, selProg, selMaj, selMin, minTitle, selYear, selStartYear);
                 
                 // Cache it
                 DEGREES[newConfig.id] = newConfig;
@@ -256,7 +265,8 @@ function updateUIDegreeTitles() {
     const d = DEGREES[currentDegreeId];
     if (d) {
         document.getElementById('dispDegreeTitle').textContent = d.title; // e.g., "Software Engineering (AI Minor)"
-        document.getElementById('dispDegreeYear').textContent = d.programTitle + " " + d.years; // e.g. BE(Hons) 2024 to 2027
+        const rulesYear = d.rulesYear || d.year;
+        document.getElementById('dispDegreeYear').textContent = `${d.programTitle} ${d.years} · ${rulesYear} rules`;
     }
 }
 
@@ -268,6 +278,7 @@ async function initApp() {
     dom.selMajor = document.getElementById('selMajor');
     dom.selMinor = document.getElementById('selMinor');
     dom.selYear = document.getElementById('selYear');
+    dom.selStartYear = document.getElementById('selStartYear');
     dom.changeDegreeBtn = document.getElementById('changeDegreeBtn');
     if (dom.changeDegreeBtn) dom.changeDegreeBtn.addEventListener('click', () => {
         document.getElementById('onboardingScreen').classList.remove('hidden');
@@ -361,6 +372,7 @@ async function initApp() {
         if (confirm("Are you sure you want to reset your plan?")) {
             state.placements = {};
             state.semesterOrder = {};
+            state.allocations = {};
             saveState();
             renderAll();
         }
@@ -469,6 +481,7 @@ async function changeDegree(newDegreeId) {
     loadCustomCoursesForCurrentDegree();
     state.placements = {};
     state.semesterOrder = {};
+    state.allocations = {};
     state.activeFilter = 'All';
     state.searchQuery = '';
 
@@ -491,7 +504,7 @@ function renderFilters() {
     const allActive = state.activeFilter === 'All' ? ' active' : '';
     container.innerHTML = `<button class="filter-pill${allActive}" data-cat="All">All</button>`;
 
-    const cats = [...new Set(state.courses.map(c => c.cat))];
+    const cats = [...new Set(state.courses.flatMap(c => c.categoryOptions || [c.cat]))];
     cats.forEach(cat => {
         const btn = document.createElement('button');
         btn.className = `filter-pill${state.activeFilter === cat ? ' active' : ''}`;
@@ -547,6 +560,7 @@ function loadState() {
             }
             state.placements = (hashState.placements && typeof hashState.placements === 'object') ? hashState.placements : {};
             state.semesterOrder = (hashState.semesterOrder && typeof hashState.semesterOrder === 'object') ? hashState.semesterOrder : {};
+            state.allocations = (hashState.allocations && typeof hashState.allocations === 'object') ? hashState.allocations : {};
             saveState();
             loadedFromHash = true;
         }
@@ -563,10 +577,12 @@ function loadState() {
             if (parsed && typeof parsed === 'object' && parsed.placements) {
                 state.placements = parsed.placements;
                 state.semesterOrder = (parsed.semesterOrder && typeof parsed.semesterOrder === 'object') ? parsed.semesterOrder : {};
+                state.allocations = (parsed.allocations && typeof parsed.allocations === 'object') ? parsed.allocations : {};
                 state.shortlist = Array.isArray(parsed.shortlist) ? parsed.shortlist : [];
             } else {
                 state.placements = parsed;
                 state.semesterOrder = {};
+                state.allocations = {};
                 state.shortlist = [];
             }
         } catch (e) {
@@ -574,6 +590,7 @@ function loadState() {
     } else {
         state.placements = {};
         state.semesterOrder = {};
+        state.allocations = {};
         state.shortlist = [];
     }
 }
@@ -582,6 +599,7 @@ function saveState() {
     localStorage.setItem(`uq_tracker_state_${currentDegreeId}`, JSON.stringify({
         placements: state.placements,
         semesterOrder: state.semesterOrder,
+        allocations: state.allocations,
         shortlist: state.shortlist
     }));
     pushHistorySnapshot();
@@ -595,7 +613,8 @@ function saveState() {
 function clonePlacements() {
     return JSON.parse(JSON.stringify({
         placements: state.placements || {},
-        semesterOrder: state.semesterOrder || {}
+        semesterOrder: state.semesterOrder || {},
+        allocations: state.allocations || {}
     }));
 }
 
@@ -633,9 +652,11 @@ function restoreHistorySnapshot(snapshot) {
     const safeSnapshot = snapshot || {};
     state.placements = JSON.parse(JSON.stringify(safeSnapshot.placements || {}));
     state.semesterOrder = JSON.parse(JSON.stringify(safeSnapshot.semesterOrder || {}));
+    state.allocations = JSON.parse(JSON.stringify(safeSnapshot.allocations || {}));
     localStorage.setItem(`uq_tracker_state_${currentDegreeId}`, JSON.stringify({
         placements: state.placements,
-        semesterOrder: state.semesterOrder
+        semesterOrder: state.semesterOrder,
+        allocations: state.allocations
     }));
     renderAll();
     updateHistoryControls();
@@ -687,7 +708,8 @@ function encodeStateForHash() {
     const payload = {
         degreeId: currentDegreeId,
         placements: state.placements,
-        semesterOrder: state.semesterOrder
+        semesterOrder: state.semesterOrder,
+        allocations: state.allocations
     };
     return btoa(encodeURIComponent(JSON.stringify(payload)));
 }
@@ -972,7 +994,7 @@ function renderCoursesTab() {
             const inPlan = !!state.placements[c.code] && state.placements[c.code] !== 'unassigned';
             if (!state.shortlist.includes(c.code) || inPlan) return;
         } else {
-            const matchCat = state.activeFilter === 'All' || c.cat === state.activeFilter;
+            const matchCat = state.activeFilter === 'All' || getEffectiveCategory(c) === state.activeFilter;
             if (!matchCat) return;
         }
         const matchSearch = c.code.toLowerCase().includes(state.searchQuery) || c.name.toLowerCase().includes(state.searchQuery);
@@ -1234,7 +1256,7 @@ function updateProgress() {
     REQUIREMENTS.forEach(req => {
         const filtered = plannedCourses.filter(c => {
             if (!req.validCats || req.validCats.length === 0) return true; // Total Units fallback
-            return req.validCats.includes(c.cat);
+            return req.validCats.includes(getEffectiveCategory(c));
         });
         const sum = filtered.reduce((acc, crs) => acc + crs.units, 0);
         const percentage = Math.min(100, Math.round((sum / req.target) * 100));
@@ -1251,6 +1273,28 @@ function updateProgress() {
 
 function getCourseInfo(code) {
     return state.courses.find(c => c.code === code);
+}
+
+function getEffectiveCategory(course) {
+    if (!course) return '';
+    const selected = state.allocations[course.code];
+    if (selected && Array.isArray(course.categoryOptions) && course.categoryOptions.includes(selected)) {
+        return selected;
+    }
+    return course.cat;
+}
+
+function setCourseAllocation(code, category) {
+    const course = getCourseInfo(code);
+    if (!course || !Array.isArray(course.categoryOptions) || !course.categoryOptions.includes(category)) return;
+    if (category === course.cat) {
+        delete state.allocations[code];
+    } else {
+        state.allocations[code] = category;
+    }
+    saveState();
+    renderAll();
+    renderFilters();
 }
 
 function renderAll() {
@@ -1407,23 +1451,32 @@ function createCourseCard(c) {
         ? '<button class="custom-course-delete" type="button" draggable="false" aria-label="Delete custom elective">×</button>'
         : '';
 
-    const isRequired = c.cat === 'Core' || c.cat === 'Required';
+    const effectiveCategory = getEffectiveCategory(c);
+    const isRequired = effectiveCategory === DegreeRules.CATEGORIES.PROGRAM_CORE || effectiveCategory.endsWith('Compulsory');
     const markerHtml = `<div class="course-marker ${isRequired ? 'required' : ''}"></div>`;
+    const allocationHtml = Array.isArray(c.categoryOptions) && c.categoryOptions.length > 1
+        ? `<label class="course-allocation-label">COUNT TOWARDS
+            <select class="course-allocation-select" draggable="false">
+              ${c.categoryOptions.map(category => `<option value="${category}"${category === effectiveCategory ? ' selected' : ''}>${category}</option>`).join('')}
+            </select>
+           </label>`
+        : '';
 
     el.innerHTML = `
     <div class="course-header">
       <div class="course-meta-left">
         ${markerHtml}
         <strong class="course-code-text">${c.code}</strong>
-        <span class="course-tag top-tag">${c.cat}</span>
+        <span class="course-tag top-tag">${effectiveCategory}</span>
         <span class="course-tag top-tag course-units">${c.units} U</span>
       </div>
       <span class="course-code-actions">${linkHtml}${deleteCustomHtml}</span>
     </div>
     <div class="course-name" title="${c.name}">${c.name}</div>
     ${excludesHtml}
+    ${allocationHtml}
     <div class="course-meta-bottom">
-      <span class="course-tag">${c.cat}</span>
+      <span class="course-tag">${effectiveCategory}</span>
       <span class="course-tag course-units">${c.units} U</span>
     </div>
     <button type="button" class="planner-remove-btn" draggable="false" aria-label="Remove from plan">Remove</button>
@@ -1434,6 +1487,16 @@ function createCourseCard(c) {
     el.addEventListener('dragend', handleDragEnd);
     el.addEventListener('mouseenter', handleCourseHoverEnter);
     el.addEventListener('mouseleave', clearCourseHoverHighlights);
+
+    const allocationSelect = el.querySelector('.course-allocation-select');
+    if (allocationSelect) {
+        allocationSelect.addEventListener('mousedown', e => e.stopPropagation());
+        allocationSelect.addEventListener('dragstart', e => e.preventDefault());
+        allocationSelect.addEventListener('change', e => {
+            e.stopPropagation();
+            setCourseAllocation(c.code, e.target.value);
+        });
+    }
 
     const deleteBtn = el.querySelector('.custom-course-delete');
     if (deleteBtn) {
@@ -1564,7 +1627,7 @@ function handleCustomElectiveSubmit(e) {
         code,
         name,
         units,
-        cat: 'Elective',
+        cat: DegreeRules.CATEGORIES.OTHER_ELECTIVE,
         isCustom: true
     });
 
@@ -1577,6 +1640,7 @@ function handleCustomElectiveSubmit(e) {
 function removeCustomCourse(code) {
     state.courses = state.courses.filter(course => course.code !== code);
     delete state.placements[code];
+    delete state.allocations[code];
     removeCourseFromSemesterOrder(code);
     saveCustomCoursesForCurrentDegree();
     saveState();

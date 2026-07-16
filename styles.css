@@ -460,6 +460,28 @@ We implement inversion via an .inverted class. */
   overflow: hidden;
 }
 
+.course-allocation-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: currentColor;
+}
+
+.course-allocation-select {
+  width: 100%;
+  border: 1px solid currentColor;
+  border-radius: 0;
+  background: inherit;
+  color: inherit;
+  padding: 4px;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
 /* Inline tags for category & units */
 .course-tag {
   font-size: 10px;

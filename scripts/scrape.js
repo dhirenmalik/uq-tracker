@@ -1,6 +1,7 @@
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const DegreeRules = require('../degreeRules');
 
 const SUPPORTED_PATHS = [
     {
@@ -89,14 +90,14 @@ function traverseAndExtract(body, courses, seenCodes, determineCatFn) {
         const cat = determineCatFn(sectionPath, code);
 
         if (!existing && cat) {
-            existing = { code: code, name: ref.name || code, units: ref.unitsMaximum || 2, cat: cat };
+            existing = { code: code, name: ref.name || code, units: ref.unitsMaximum || 2, sourceCategories: [cat] };
             if (code === 'REIT4841' || code === 'REIT4842') existing.isYearLong = true;
             courses.push(existing);
             seenCodes.add(code);
             // Default exclusive array init to avoid undefined
             existing.exclusiveWith = [];
-        } else if (existing && cat && existing.cat !== cat) {
-            if (cat === 'Minor') existing.cat = cat;
+        } else if (existing && cat && !existing.sourceCategories.includes(cat)) {
+            existing.sourceCategories.push(cat);
         }
 
         if (existing) {
@@ -190,49 +191,91 @@ async function scrapeDegree(config) {
     const courses = [];
     const seen = new Set();
 
-    // Scrape Prog
+    const categories = DegreeRules.CATEGORIES;
+    const ruleContext = { rulesYear: config.year, majorId: config.majorId, minorId: config.minorId };
+
+    function findSection(node, wantedTitle) {
+        if (Array.isArray(node)) {
+            for (const item of node) {
+                const found = findSection(item, wantedTitle);
+                if (found) return found;
+            }
+        } else if (node && typeof node === 'object') {
+            if (node.header?.title === wantedTitle) return node;
+            return findSection(node.body, wantedTitle);
+        }
+        return null;
+    }
+
     const progRules = progData.programRequirements.payload.components.find(c => c.componentIntegrationIdentifier === 'PROGRAM_RULES').payload;
     const progBody = progRules.body;
 
     const corePart = progBody[0];
-    const optionPart = progBody.find(p => p.header?.title?.toLowerCase().includes('option')); // Generic option finder
+    const optionPart = progBody.find(p => p.header?.title === `${config.majorTitle} Plan Options`);
 
-    // Core
-    if (corePart) traverseAndExtract(corePart.body || [], courses, seen, () => 'Core');
+    if (corePart) traverseAndExtract(corePart.body || [], courses, seen, () => categories.PROGRAM_CORE);
 
-    // Plan (Major) Option
+    let majorExtensionUnits = 0;
+    let majorAdvancedUnits = 0;
     if (optionPart) {
+        const selectedBranchTitle = config.minorId !== 'NONE'
+            ? `${config.majorTitle} Minor Options`
+            : `${config.majorTitle} No Major Option`;
+        const selectedBranch = findSection(optionPart.body || [], selectedBranchTitle);
+        majorExtensionUnits = getRuleParamN(findSection(selectedBranch?.body || [], `${config.majorTitle} Extension Course`));
+        majorAdvancedUnits = getRuleParamN(findSection(selectedBranch?.body || [], `${config.majorTitle} Advanced Elective Courses`));
+
         traverseAndExtract(optionPart.body || [], courses, seen, (path) => {
             const s = path.toLowerCase();
-            if (s.includes('extension') || s.includes('research')) return 'Major Ext';
-            if (s.includes('advanced')) return 'Major Adv';
-            if (s.includes('elective')) return 'Elective';
-            return 'Major Options';
+            if (!s.includes(selectedBranchTitle.toLowerCase())) return null;
+            if (s.includes('extension') || s.includes('research')) return categories.SOFTWARE_EXTENSION;
+            if (s.includes('advanced')) return categories.SOFTWARE_ADVANCED;
+            if (s.includes('elective')) return categories.OTHER_ELECTIVE;
+            return null;
         });
     }
 
-    // Scrape Major explicit compulsory
+    let majorCoreUnits = 0;
     if (planData) {
         const planRules = planData.programRequirements.payload.components.find(c => c.componentIntegrationIdentifier === 'PROGRAM_RULES').payload;
-        const majorCorePart = planRules.body.find(p => p.header?.title?.toLowerCase().includes('compulsory'));
-        if (majorCorePart) {
-            traverseAndExtract(majorCorePart.body || [], courses, seen, () => 'Major Core');
-        }
+        planRules.body.forEach(part => {
+            const title = part.header?.title?.toLowerCase() || '';
+            if (title.includes('compulsory') || title.includes('core')) {
+                majorCoreUnits += getRuleParamN(part);
+                traverseAndExtract(part.body || [], courses, seen, () => categories.SOFTWARE_COMPULSORY);
+            } else if (title.includes('elective')) {
+                traverseAndExtract(part.body || [], courses, seen, () => categories.OTHER_ELECTIVE);
+            }
+        });
     }
 
-    // Scrape Minor
-    let minorUnits = 0;
+    let minorCompulsoryUnits = 0;
+    let minorElectiveUnits = 0;
     if (minorData) {
         const minorRules = minorData.programRequirements.payload.components.find(c => c.componentIntegrationIdentifier === 'PROGRAM_RULES').payload;
-        minorRules.body.forEach(part => minorUnits += getRuleParamN(part));
-        traverseAndExtract(minorRules.body, courses, seen, () => 'Minor');
+        minorRules.body.forEach(part => {
+            const title = part.header?.title?.toLowerCase() || '';
+            if (title.includes('compulsory') || title.includes('core')) {
+                minorCompulsoryUnits += getRuleParamN(part);
+                traverseAndExtract(part.body || [], courses, seen, () => categories.MINOR_COMPULSORY);
+            } else if (title.includes('elective')) {
+                minorElectiveUnits += getRuleParamN(part);
+                traverseAndExtract(part.body || [], courses, seen, () => categories.MINOR_ELECTIVE);
+            }
+        });
     }
 
-    // Add Elective Placeholders
+    courses.forEach(course => {
+        const resolvedCategories = DegreeRules.resolveCourseCategories(course.code, course.sourceCategories, ruleContext);
+        course.cat = resolvedCategories[0];
+        if (resolvedCategories.length > 1) course.categoryOptions = resolvedCategories;
+        delete course.sourceCategories;
+    });
+
     courses.push(
-        { code: 'ELEC_GEN_1', name: 'General/BE Elective', units: 2, cat: 'Elective' },
-        { code: 'ELEC_GEN_2', name: 'General/BE Elective', units: 2, cat: 'Elective' },
-        { code: 'ELEC_GEN_3', name: 'General/BE Elective', units: 2, cat: 'Elective' }
+        { code: 'ELEC_GEN_1', name: 'General/BE Elective', units: 2, cat: categories.OTHER_ELECTIVE },
+        { code: 'ELEC_GEN_2', name: 'General/BE Elective', units: 2, cat: categories.OTHER_ELECTIVE },
+        { code: 'ELEC_GEN_3', name: 'General/BE Elective', units: 2, cat: categories.OTHER_ELECTIVE }
     );
 
     // Fetch Details
@@ -248,11 +291,6 @@ async function scrapeDegree(config) {
     // Build Req list
     const beTotalMax = progData.programRequirements.unitsMaximum || 64;
     const beCoreUnits = corePart ? getRuleParamN(corePart) : 8;
-    const beGenElecUnitsMax = optionPart ? getRuleParamM(optionPart.body?.find(p => p.header?.title === 'General Elective Courses')) : 4;
-
-    const majorCoreUnits = 34; // Dynamic extracting is tricky relying on plan specifics, using safe anchor
-
-    // Generate 4-year (8 semesters) layout array for UI
     const semesters = [];
     const sy = parseInt(config.year, 10);
     for (let i = 0; i < 4; i++) {
@@ -263,27 +301,33 @@ async function scrapeDegree(config) {
     }
 
     const reqs = [
-        { id: 'total', name: 'Total Units', target: beTotalMax, filterStr: '() => true', color: 'var(--accent-color)' },
-        { id: 'core', name: 'BE Core', target: beCoreUnits, filterStr: "c => c.cat === 'Core'", color: 'var(--cat-core)' },
-        { id: 'majorcore', name: 'SE Core', target: majorCoreUnits, filterStr: "c => c.cat === 'Major Core'", color: 'var(--cat-secore)' }
+        { id: 'total', name: 'Total Units', target: beTotalMax, validCats: [], color: 'var(--accent-color)' },
+        { id: 'core', name: 'BE Core', target: beCoreUnits, validCats: [categories.PROGRAM_CORE], color: 'var(--cat-core)' },
+        { id: 'majorcore', name: `${config.majorTitle} Compulsory`, target: majorCoreUnits, validCats: [categories.SOFTWARE_COMPULSORY], color: 'var(--cat-secore)' },
+        { id: 'majorext', name: `${config.majorTitle} Extension`, target: majorExtensionUnits, validCats: [categories.SOFTWARE_EXTENSION], color: 'var(--cat-seext)' },
+        { id: 'majoradvanced', name: `${config.majorTitle} Advanced Electives`, target: majorAdvancedUnits, validCats: [categories.SOFTWARE_ADVANCED], color: 'var(--cat-seext)' }
     ];
 
     if (config.minorId !== 'NONE') {
-        reqs.push({ id: 'minor', name: config.minorTitle, target: minorUnits, filterStr: "c => c.cat === 'Minor'", color: 'var(--cat-aiminor)' });
+        reqs.push(
+            { id: 'minorcore', name: `${config.minorTitle} Compulsory`, target: minorCompulsoryUnits, validCats: [categories.MINOR_COMPULSORY], color: 'var(--cat-aiminor)' },
+            { id: 'minorelective', name: `${config.minorTitle} Electives`, target: minorElectiveUnits, validCats: [categories.MINOR_ELECTIVE], color: 'var(--cat-aiminor)' }
+        );
     }
 
-    reqs.push(
-        { id: 'majorext', name: 'SE Ext / Adv', target: 2, filterStr: "c => c.cat === 'Major Ext' || c.cat === 'Major Adv'", color: 'var(--cat-seext)' },
-        { id: 'electives', name: 'Electives', target: beGenElecUnitsMax || 4, filterStr: "c => c.cat === 'Elective' || c.cat === 'Major Options'", color: 'var(--cat-elec)' }
-    );
+    const allocatedTargets = beCoreUnits + majorCoreUnits + majorExtensionUnits + majorAdvancedUnits
+        + minorCompulsoryUnits + minorElectiveUnits;
+    reqs.push({ id: 'electives', name: 'Other / Program Electives', target: Math.max(0, beTotalMax - allocatedTargets), validCats: [categories.OTHER_ELECTIVE], color: 'var(--cat-elec)' });
 
     return {
-        id: `${config.programId}_${config.majorId}_${config.minorId}_${config.year}`,
+        id: `${config.programId}_${config.majorId}_${config.minorId}_${config.year}_${config.year}`,
         title: `${config.majorTitle} (${config.minorTitle})`,
         program: config.programId,
         major: config.majorId,
         minor: config.minorId,
         year: config.year,
+        rulesYear: config.year,
+        startYear: config.year,
         programTitle: config.programTitle,
         majorTitle: config.majorTitle,
         minorTitle: config.minorTitle,
