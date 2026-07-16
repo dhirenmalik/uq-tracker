@@ -1,10 +1,13 @@
-const PrerequisiteGraph = (function (factory) {
-    const api = factory();
+const PrerequisiteGraph = (function (root, factory) {
+    const degreeRules = typeof module === 'object' && module.exports
+        ? require('./degreeRules')
+        : root?.DegreeRules;
+    const api = factory(degreeRules);
     if (typeof module === 'object' && module.exports) {
         module.exports = api;
     }
     return api;
-})(function () {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (degreeRules) {
     function normalizeCode(code) {
         return typeof code === 'string' ? code.trim().toUpperCase() : '';
     }
@@ -61,15 +64,25 @@ const PrerequisiteGraph = (function (factory) {
         }
 
         const evaluated = node.prereqOptions.map(option => {
-            const missing = option.filter(code =>
-                !byCode.has(code) || (requireSelectedPrerequisites && !selectedSet.has(code))
-            );
-            return { option, missing };
+            const resolved = [];
+            const missing = [];
+            option.forEach(code => {
+                const availableCodes = requireSelectedPrerequisites ? selectedSet : byCode.keys();
+                const matchedCode = degreeRules?.findEquivalentCourseCode
+                    ? degreeRules.findEquivalentCourseCode(code, availableCodes)
+                    : (availableCodes.has(code) ? code : null);
+                if (matchedCode && byCode.has(matchedCode)) {
+                    resolved.push(matchedCode);
+                } else {
+                    missing.push(code);
+                }
+            });
+            return { option, resolved: uniqueNormalizedCodes(resolved), missing };
         });
         const satisfied = evaluated
             .filter(result => result.missing.length === 0)
             .sort((left, right) => left.option.length - right.option.length)[0];
-        if (satisfied) return { selected: satisfied.option, missing: [] };
+        if (satisfied) return { selected: satisfied.resolved, missing: [] };
 
         const closest = evaluated.sort((left, right) =>
             left.missing.length - right.missing.length || left.option.length - right.option.length
@@ -159,7 +172,9 @@ const PrerequisiteGraph = (function (factory) {
                 requireSelectedPrerequisites
             );
             prerequisiteChoice.missing.forEach(prereqCode => {
-                const prereqExists = byCode.has(prereqCode);
+                const prereqExists = degreeRules?.findEquivalentCourseCode
+                    ? !!degreeRules.findEquivalentCourseCode(prereqCode, byCode.keys())
+                    : byCode.has(prereqCode);
                 missingPrerequisites.push({
                     course: code,
                     prereq: prereqCode,

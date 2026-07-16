@@ -4,7 +4,9 @@ const test = require('node:test');
 const {
     CATEGORIES,
     buildSemesters,
+    findEquivalentCourseCode,
     getAvailableStartYears,
+    getEquivalentCourseCodes,
     getLegacyComputerScienceMajors,
     getStudyYears,
     prerequisiteExpressionToOptions,
@@ -62,6 +64,14 @@ test('preserves prerequisite alternatives instead of treating every code as mand
         prerequisiteExpressionToOptions('(CSSE1001 or CSSE7030) or ENGG1001'),
         [['CSSE1001'], ['CSSE7030'], ['ENGG1001']]
     );
+});
+
+test('resolves equivalent introductory computing and mathematics courses', () => {
+    assert.deepEqual(getEquivalentCourseCodes('CSSE1001'), ['ENGG1001']);
+    assert.equal(findEquivalentCourseCode('ENGG1001', ['CSSE1001']), 'CSSE1001');
+    assert.equal(findEquivalentCourseCode('MATH1051', new Set(['MATH1071'])), 'MATH1071');
+    assert.equal(findEquivalentCourseCode('MATH1052', ['MATH1072']), 'MATH1072');
+    assert.equal(findEquivalentCourseCode('MATH1061', ['MATH1081']), 'MATH1081');
 });
 
 test('assigns COMP3400 to Software compulsory for the 2026 AI transition', () => {

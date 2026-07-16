@@ -99,3 +99,30 @@ test('reports only the closest unsatisfied prerequisite option', () => {
         { course: 'COMP3506', prereq: 'MATH1061', reason: 'not-selected' }
     ]);
 });
+
+test('accepts equivalent courses and orders against the course actually in the plan', () => {
+    const result = sortCoursesByPrerequisites([
+        { code: 'CSSE1001', prereqs: [] },
+        { code: 'MATH1071', prereqs: [] },
+        { code: 'MATH1072', prereqs: [] },
+        {
+            code: 'MATH2001',
+            prereqs: ['MATH1051', 'MATH1052'],
+            prereqOptions: [['MATH1051', 'MATH1052']]
+        },
+        {
+            code: 'CSSE2002',
+            prereqs: ['ENGG1001'],
+            prereqOptions: [['ENGG1001']]
+        }
+    ], {
+        selectedCodes: ['CSSE1001', 'MATH1071', 'MATH1072', 'MATH2001', 'CSSE2002'],
+        requireSelectedPrerequisites: true
+    });
+
+    assert.equal(result.valid, true);
+    assert.deepEqual(result.missingPrerequisites, []);
+    assert.ok(result.order.indexOf('CSSE1001') < result.order.indexOf('CSSE2002'));
+    assert.ok(result.order.indexOf('MATH1071') < result.order.indexOf('MATH2001'));
+    assert.ok(result.order.indexOf('MATH1072') < result.order.indexOf('MATH2001'));
+});

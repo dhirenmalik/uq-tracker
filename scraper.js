@@ -130,11 +130,11 @@ async function scrapeLiveDegree(
     const courses = [];
     const seen = new Set();
 
-    const hardcodedExclusives = {
-        'ENGG1001': ['CSSE1001'], 'CSSE1001': ['ENGG1001'],
-        'MATH1051': ['MATH1071'], 'MATH1071': ['MATH1051'],
-        'MATH1052': ['MATH1072'], 'MATH1072': ['MATH1052']
-    };
+    const hardcodedExclusives = Object.fromEntries(
+        DegreeRules.COURSE_EQUIVALENCE_GROUPS.flatMap(group =>
+            group.map(code => [code, group.filter(otherCode => otherCode !== code)])
+        )
+    );
 
     function processCourseRef(ref, sectionPath, isExclusiveGroup, groupCodes, determineCatFn) {
         const code = ref.code;

@@ -77,7 +77,7 @@ async function ensureCourseSemesters(code) {
 // STATE
 // ============================================================
 
-const DEGREE_CACHE_VERSION = 'multi-major-prerequisites-v3';
+const DEGREE_CACHE_VERSION = 'course-equivalencies-v4';
 if (localStorage.getItem('uq_tracker_cache_version') !== DEGREE_CACHE_VERSION) {
     localStorage.removeItem('uq_tracker_cached_degrees');
     localStorage.removeItem('uq_tracker_degree');
@@ -1438,9 +1438,25 @@ function getPrerequisiteOptions(course) {
         : [];
 }
 
+function findPlannedEquivalentCourseCode(code, plannedCodes) {
+    if (typeof DegreeRules !== 'undefined' && typeof DegreeRules.findEquivalentCourseCode === 'function') {
+        return DegreeRules.findEquivalentCourseCode(code, plannedCodes);
+    }
+    return plannedCodes.has(code) ? code : null;
+}
+
+function resolvePlannedPrerequisiteOption(option, plannedSet) {
+    const resolved = option.map(code => findPlannedEquivalentCourseCode(code, plannedSet));
+    return resolved.every(Boolean) ? [...new Set(resolved)] : null;
+}
+
 function choosePlannedPrerequisiteOption(course, plannedSet) {
     const options = getPrerequisiteOptions(course);
-    return options.find(option => option.every(code => plannedSet.has(code))) || null;
+    for (const option of options) {
+        const resolved = resolvePlannedPrerequisiteOption(option, plannedSet);
+        if (resolved) return resolved;
+    }
+    return null;
 }
 
 function findSemesterPrerequisiteViolations(plannedCodes) {
@@ -1890,7 +1906,11 @@ function handleDrop(e) {
             const targetSemIndex = SEMESTERS.findIndex(s => s.id === targetId);
             const prerequisiteSatisfied = getPrerequisiteOptions(courseInfo).some(option =>
                 option.every(prereqCode => {
-                    const prereqPlacement = state.placements[prereqCode];
+                    const plannedCodes = new Set(Object.keys(state.placements).filter(plannedCode =>
+                        state.placements[plannedCode] && state.placements[plannedCode] !== 'unassigned'
+                    ));
+                    const actualPrereqCode = findPlannedEquivalentCourseCode(prereqCode, plannedCodes);
+                    const prereqPlacement = actualPrereqCode ? state.placements[actualPrereqCode] : null;
                     const prereqSemId = Array.isArray(prereqPlacement)
                         ? (prereqPlacement[0] || null)
                         : ((typeof prereqPlacement === 'string' && prereqPlacement !== 'unassigned') ? prereqPlacement : null);

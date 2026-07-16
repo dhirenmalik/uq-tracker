@@ -39,6 +39,13 @@
         { id: 'SCCOMC2451', label: 'Scientific Computing Major' }
     ]);
 
+    const COURSE_EQUIVALENCE_GROUPS = Object.freeze([
+        Object.freeze(['CSSE1001', 'ENGG1001']),
+        Object.freeze(['MATH1051', 'MATH1071']),
+        Object.freeze(['MATH1052', 'MATH1072']),
+        Object.freeze(['MATH1061', 'MATH1081'])
+    ]);
+
     function getAvailableStartYears(rulesYear) {
         const year = parseInt(rulesYear, 10);
         if (!Number.isFinite(year)) return [];
@@ -101,6 +108,22 @@
 
     function getLegacyComputerScienceMajors() {
         return LEGACY_COMPUTER_SCIENCE_MAJORS.map(major => ({ ...major }));
+    }
+
+    function getEquivalentCourseCodes(code) {
+        const normalized = String(code || '').trim().toUpperCase();
+        if (!normalized) return [];
+        const group = COURSE_EQUIVALENCE_GROUPS.find(codes => codes.includes(normalized));
+        return group ? group.filter(candidate => candidate !== normalized) : [];
+    }
+
+    function findEquivalentCourseCode(code, availableCodes) {
+        const normalized = String(code || '').trim().toUpperCase();
+        const available = new Set(
+            Array.from(availableCodes || [], candidate => String(candidate || '').trim().toUpperCase())
+        );
+        return [normalized, ...getEquivalentCourseCodes(normalized)]
+            .find(candidate => available.has(candidate)) || null;
     }
 
     function prerequisiteExpressionToOptions(text) {
@@ -195,8 +218,11 @@
 
     return {
         CATEGORIES,
+        COURSE_EQUIVALENCE_GROUPS,
         buildSemesters,
+        findEquivalentCourseCode,
         getAvailableStartYears,
+        getEquivalentCourseCodes,
         getLegacyComputerScienceMajors,
         getStudyYears,
         isSoftwareAiTransition,
