@@ -8,6 +8,7 @@ const {
     getAvailableStartYears,
     getEquivalentCourseCodes,
     getLegacyComputerScienceMajors,
+    getPlanningSemesterOfferings,
     getStudyYears,
     prerequisiteExpressionToOptions,
     resolvePlanId,
@@ -34,6 +35,24 @@ test('builds summer semesters only for the years selected by the user', () => {
         'sem-25-2',
         'sem-25-summer'
     ]);
+});
+
+test('supplements provisional future offerings with the latest known year', () => {
+    const offerings = {
+        2025: [1, 2],
+        2026: [1, 2],
+        2027: [1]
+    };
+    assert.deepEqual(getPlanningSemesterOfferings(offerings, 2026, 2026), [1, 2]);
+    assert.deepEqual(getPlanningSemesterOfferings(offerings, 2027, 2026), [1, 2]);
+    assert.deepEqual(getPlanningSemesterOfferings(offerings, 2028, 2026), [1, 2]);
+});
+
+test('does not broaden past or current-year published offerings', () => {
+    assert.deepEqual(getPlanningSemesterOfferings({
+        2025: [2],
+        2026: [1]
+    }, 2026, 2026), [1]);
 });
 
 test('resolves combined-degree plan aliases from the program requirements', () => {

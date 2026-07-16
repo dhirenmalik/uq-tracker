@@ -79,6 +79,32 @@
         });
     }
 
+    function getPlanningSemesterOfferings(semesters, targetYear, referenceYear = new Date().getFullYear()) {
+        const year = parseInt(targetYear, 10);
+        const currentYear = parseInt(referenceYear, 10);
+        if (!Number.isFinite(year)) return [];
+
+        const exact = unique((semesters?.[year] || semesters?.[String(year)] || []).map(Number))
+            .filter(semester => semester === 1 || semester === 2)
+            .sort();
+        if (!Number.isFinite(currentYear) || year <= currentYear) return exact;
+
+        const referenceCandidates = Object.keys(semesters || {})
+            .map(Number)
+            .filter(candidateYear => Number.isFinite(candidateYear) && candidateYear <= currentYear)
+            .sort((left, right) => right - left);
+        const latestKnownYear = referenceCandidates[0];
+        const latestKnown = latestKnownYear
+            ? unique((semesters[latestKnownYear] || semesters[String(latestKnownYear)] || []).map(Number))
+                .filter(semester => semester === 1 || semester === 2)
+            : [];
+
+        // Future UQ offerings are often published one semester at a time. Keep
+        // published future data, but do not treat an incomplete listing as a
+        // definitive restriction when the latest known year offered more terms.
+        return unique([...exact, ...latestKnown]).sort();
+    }
+
     function isSoftwareAiTransition(context) {
         return parseInt(context.rulesYear, 10) === 2026
             && context.majorId === 'SOFTWE2455'
@@ -224,6 +250,7 @@
         getAvailableStartYears,
         getEquivalentCourseCodes,
         getLegacyComputerScienceMajors,
+        getPlanningSemesterOfferings,
         getStudyYears,
         isSoftwareAiTransition,
         prerequisiteExpressionToOptions,

@@ -49,23 +49,12 @@ async function ensureCourseSemesters(code) {
         // If fetch fails, leave result empty — course will be placeable anywhere
     }
 
-    // For years with no data (e.g. future years), prefer 2025 data
-    // as the most reliable reference, then fall back to nearest earlier year.
-    // If no data exists at all, leave unset so the course is placeable anywhere.
+    // Future offerings are often published one semester at a time. Supplement
+    // provisional future listings with the latest fully known year's pattern.
     for (const y of years) {
-        if (!result[y]) {
-            if (result[2025]) {
-                result[y] = [...result[2025]];
-            } else if (result[2026]) {
-                result[y] = [...result[2026]];
-            } else {
-                for (let prev = y - 1; prev >= years[0]; prev--) {
-                    if (result[prev]) {
-                        result[y] = [...result[prev]];
-                        break;
-                    }
-                }
-            }
+        const planningOfferings = DegreeRules.getPlanningSemesterOfferings(result, y);
+        if (planningOfferings.length > 0) {
+            result[y] = planningOfferings;
         }
     }
 
@@ -1894,7 +1883,10 @@ function handleDrop(e) {
                 return;
             }
             // Crosscheck against the specific year the user is placing into
-            const yearData = courseInfo.semesters[targetSem.year];
+            const yearData = DegreeRules.getPlanningSemesterOfferings(
+                courseInfo.semesters,
+                targetSem.year
+            );
             if (targetSem.term !== 'summer' && yearData && yearData.length > 0 && !yearData.includes(targetSem.semNum)) {
                 alert(`Cannot add ${code} to ${targetSem.name}. In ${targetSem.year}, it is only available in: ${yearData.map(s => 'S' + s).join(', ')}.`);
                 clearDropIndicator();
