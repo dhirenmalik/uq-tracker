@@ -209,10 +209,18 @@ async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTi
 
                 traverseTree(part.body || [], (path) => {
                     const s = path.toLowerCase();
-                    if (!s.includes(selectedBranchTitle.toLowerCase())) return null;
-                    if (s.includes('extension') || s.includes('research')) return categories.SOFTWARE_EXTENSION;
-                    if (s.includes('advanced')) return categories.SOFTWARE_ADVANCED;
-                    if (s.includes('elective')) return categories.OTHER_ELECTIVE;
+                    const isSelectedBranch = s.includes(selectedBranchTitle.toLowerCase());
+                    if (isSelectedBranch && (s.includes('extension') || s.includes('research'))) {
+                        return categories.SOFTWARE_EXTENSION;
+                    }
+                    if (isSelectedBranch && s.includes('advanced')) {
+                        return categories.SOFTWARE_ADVANCED;
+                    }
+                    if (s.includes('breadth elective')
+                        || s.includes('program elective')
+                        || s.includes('general elective')) {
+                        return categories.OTHER_ELECTIVE;
+                    }
                     return null;
                 });
             }

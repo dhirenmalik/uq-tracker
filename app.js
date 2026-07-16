@@ -77,6 +77,13 @@ async function ensureCourseSemesters(code) {
 // STATE
 // ============================================================
 
+const DEGREE_CACHE_VERSION = '2026-transition-electives-v2';
+if (localStorage.getItem('uq_tracker_cache_version') !== DEGREE_CACHE_VERSION) {
+    localStorage.removeItem('uq_tracker_cached_degrees');
+    localStorage.removeItem('uq_tracker_degree');
+    localStorage.setItem('uq_tracker_cache_version', DEGREE_CACHE_VERSION);
+}
+
 const cachedDegrees = localStorage.getItem('uq_tracker_cached_degrees');
 if (cachedDegrees) {
     try { DEGREES = JSON.parse(cachedDegrees); } catch(e) {}
@@ -486,7 +493,6 @@ async function changeDegree(newDegreeId) {
     state.searchQuery = '';
 
     updateUIDegreeTitles();
-    saveState();
     loadState();
     initializeHistory();
     renderFilters();
