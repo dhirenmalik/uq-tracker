@@ -144,7 +144,8 @@ window.addEventListener('DOMContentLoaded', () => {
 window.refreshCascadingDropdowns = null;
 
 function initCascadingDropdowns() {
-    if (!dom.selProgram || !dom.selMajor || !dom.selMinor || !dom.selYear || !dom.selStartYear) return;
+    if (!dom.selProgram || !dom.selMajor || !dom.selMinor || !dom.selYear || !dom.selStartYear
+        || !dom.enableSummerSemesters || !dom.summerSemesterYears) return;
 
     function populateFromMap(selectEl, arrayConfig, currentId) {
         selectEl.innerHTML = '';
@@ -167,6 +168,21 @@ function initCascadingDropdowns() {
         if (!found && selectEl.options.length > 0) {
             selectEl.options[0].selected = true;
         }
+    }
+
+    function renderSummerYearOptions() {
+        const selectedYears = new Set(
+            [...dom.summerSemesterYears.querySelectorAll('input:checked')].map(input => parseInt(input.value, 10))
+        );
+        const studyYears = DegreeRules.getStudyYears(dom.selStartYear.value, 4);
+        dom.summerSemesterYears.innerHTML = '';
+        studyYears.forEach(year => {
+            const label = document.createElement('label');
+            label.className = 'summer-year-option';
+            label.innerHTML = `<input type="checkbox" value="${year}"${selectedYears.has(year) ? ' checked' : ''}> ${year}`;
+            dom.summerSemesterYears.appendChild(label);
+        });
+        dom.summerSemesterYears.classList.toggle('is-hidden', !dom.enableSummerSemesters.checked);
     }
 
     window.refreshCascadingDropdowns = function() {
@@ -202,6 +218,7 @@ function initCascadingDropdowns() {
             dom.selStartYear.value = rulesYear;
         }
         populateFromMap(dom.selStartYear, availableStartYears, dom.selStartYear.value);
+        renderSummerYearOptions();
     };
 
     [dom.selProgram, dom.selMajor, dom.selMinor, dom.selYear].forEach(el => {
@@ -209,6 +226,8 @@ function initCascadingDropdowns() {
             window.refreshCascadingDropdowns();
         });
     });
+    dom.selStartYear.addEventListener('change', renderSummerYearOptions);
+    dom.enableSummerSemesters.addEventListener('change', renderSummerYearOptions);
 
     // Start Planning Button confirms the choice and hides onboarding
     const startBtn = document.getElementById('startPlanningBtn');
@@ -220,6 +239,9 @@ function initCascadingDropdowns() {
             const selMin = dom.selMinor.value || (UQ_OPTIONS.minors[selMaj] ? UQ_OPTIONS.minors[selMaj][0].id : 'NONE');
             const selYear = dom.selYear.value || UQ_OPTIONS.years[0];
             const selStartYear = dom.selStartYear.value || selYear;
+            const selectedSummerYears = dom.enableSummerSemesters.checked
+                ? [...dom.summerSemesterYears.querySelectorAll('input:checked')].map(input => parseInt(input.value, 10))
+                : [];
 
             const majorObj = (UQ_OPTIONS.majors[selProg] || []).find(m => m.id === selMaj);
             const minorObj = (UQ_OPTIONS.minors[selMaj] || []).find(m => m.id === selMin);
@@ -243,7 +265,16 @@ function initCascadingDropdowns() {
 
             try {
                 // Call scraper.js explicitly
-                const newConfig = await scrapeLiveDegree(majTitle, selProg, selMaj, selMin, minTitle, selYear, selStartYear);
+                const newConfig = await scrapeLiveDegree(
+                    majTitle,
+                    selProg,
+                    selMaj,
+                    selMin,
+                    minTitle,
+                    selYear,
+                    selStartYear,
+                    selectedSummerYears
+                );
                 
                 // Cache it
                 DEGREES[newConfig.id] = newConfig;
@@ -289,6 +320,8 @@ async function initApp() {
     dom.selMinor = document.getElementById('selMinor');
     dom.selYear = document.getElementById('selYear');
     dom.selStartYear = document.getElementById('selStartYear');
+    dom.enableSummerSemesters = document.getElementById('enableSummerSemesters');
+    dom.summerSemesterYears = document.getElementById('summerSemesterYears');
     dom.changeDegreeBtn = document.getElementById('changeDegreeBtn');
     if (dom.changeDegreeBtn) dom.changeDegreeBtn.addEventListener('click', () => {
         document.getElementById('onboardingScreen').classList.remove('hidden');
@@ -1197,19 +1230,20 @@ function showSemesterPicker(code, anchorEl) {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'strict-btn';
+            const termLabel = sem.term === 'summer' ? 'Summer' : `S${sem.semNum}`;
 
             if (alreadyAdded) {
-                btn.textContent = `S${sem.semNum} — added`;
+                btn.textContent = `${termLabel} — added`;
                 btn.disabled = true;
                 btn.style.color = 'var(--disabled-color)';
                 btn.style.borderColor = 'var(--disabled-color)';
             } else if (isFull) {
-                btn.textContent = `S${sem.semNum} (Full)`;
+                btn.textContent = `${termLabel} (Full)`;
                 btn.disabled = true;
                 btn.style.color = 'var(--disabled-color)';
                 btn.style.borderColor = 'var(--disabled-color)';
             } else {
-                btn.textContent = `S${sem.semNum}`;
+                btn.textContent = termLabel;
                 btn.addEventListener('click', (e) => {
                     e.stopPropagation();
 
@@ -1770,7 +1804,7 @@ function handleDrop(e) {
             }
             // Crosscheck against the specific year the user is placing into
             const yearData = courseInfo.semesters[targetSem.year];
-            if (yearData && yearData.length > 0 && !yearData.includes(targetSem.semNum)) {
+            if (targetSem.term !== 'summer' && yearData && yearData.length > 0 && !yearData.includes(targetSem.semNum)) {
                 alert(`Cannot add ${code} to ${targetSem.name}. In ${targetSem.year}, it is only available in: ${yearData.map(s => 'S' + s).join(', ')}.`);
                 clearDropIndicator();
                 return;

@@ -57,7 +57,7 @@ async function scrapeCourseDetailsDynamically(code) {
     return courseCache[code];
 }
 
-async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTitle, rulesYear, startYear = rulesYear) {
+async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTitle, rulesYear, startYear = rulesYear, summerYears = []) {
     const requestedRulesYear = parseInt(rulesYear, 10);
     const candidateRulesYears = UQ_OPTIONS.years
         .map(Number)
@@ -385,17 +385,17 @@ async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTi
     const electiveTarget = Math.max(0, beTotalMax - allocatedTargets);
     reqs.push({ id: 'electives', name: 'Other / Program Electives', target: electiveTarget, validCats: [categories.OTHER_ELECTIVE], color: 'var(--cat-elec)' });
 
-    const semesters = [];
     const sy = parseInt(startYear, 10);
-    for (let i = 0; i < yearsOfStudy; i++) {
-        const yr = sy + i;
-        const yy = yr.toString().slice(-2);
-        semesters.push({ id: `sem-${yy}-1`, name: `${yr} Sem 1`, year: yr, semNum: 1 });
-        semesters.push({ id: `sem-${yy}-2`, name: `${yr} Sem 2`, year: yr, semNum: 2 });
-    }
+    const selectedSummerYears = summerYears
+        .map(Number)
+        .filter(year => DegreeRules.getStudyYears(sy, yearsOfStudy).includes(year));
+    const semesters = DegreeRules.buildSemesters(sy, yearsOfStudy, selectedSummerYears);
+    const summerIdSuffix = selectedSummerYears.length > 0
+        ? `_summer-${selectedSummerYears.join('-')}`
+        : '';
 
     return {
-        id: `${programId}_${majorId}_${minorId}_${effectiveRulesYear}_${startYear}`,
+        id: `${programId}_${majorId}_${minorId}_${effectiveRulesYear}_${startYear}${summerIdSuffix}`,
         title: `${majorTitle}${minorId !== 'NONE' ? ` (${minorTitle})` : ''}`,
         program: programId,
         major: majorId,
@@ -404,6 +404,7 @@ async function scrapeLiveDegree(majorTitle, programId, majorId, minorId, minorTi
         rulesYear: effectiveRulesYear,
         requestedRulesYear,
         startYear: sy,
+        summerYears: selectedSummerYears,
         programTitle: progData.title || "Bachelor of Engineering (Honours)",
         majorTitle: majorTitle,
         minorTitle: minorTitle,

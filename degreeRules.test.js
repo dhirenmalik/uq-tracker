@@ -3,7 +3,9 @@ const test = require('node:test');
 
 const {
     CATEGORIES,
+    buildSemesters,
     getAvailableStartYears,
+    getStudyYears,
     resolvePlanId,
     resolveCourseCategories
 } = require('./degreeRules');
@@ -16,6 +18,17 @@ const transition = {
 
 test('allows a rules year to be back-shifted by up to two years', () => {
     assert.deepEqual(getAvailableStartYears(2026), [2026, 2025, 2024]);
+});
+
+test('builds summer semesters only for the years selected by the user', () => {
+    assert.deepEqual(getStudyYears(2024, 4), [2024, 2025, 2026, 2027]);
+    assert.deepEqual(buildSemesters(2024, 2, [2025]).map(semester => semester.id), [
+        'sem-24-1',
+        'sem-24-2',
+        'sem-25-1',
+        'sem-25-2',
+        'sem-25-summer'
+    ]);
 });
 
 test('resolves combined-degree plan aliases from the program requirements', () => {

@@ -976,6 +976,35 @@ mark.search-highlight {
   color: var(--disabled-color);
 }
 
+.onboarding-check-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.onboarding-check-label input,
+.summer-year-option input {
+  accent-color: var(--text-color);
+}
+
+.summer-year-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 6px;
+}
+
+.summer-year-option {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border-color);
+  padding: 6px 9px;
+  color: var(--text-color) !important;
+  cursor: pointer;
+}
+
 .primary-btn {
   background: var(--text-color);
   color: var(--bg-color);

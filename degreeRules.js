@@ -21,6 +21,33 @@
         return [year, year - 1, year - 2];
     }
 
+    function getStudyYears(startYear, yearsOfStudy = 4) {
+        const firstYear = parseInt(startYear, 10);
+        if (!Number.isFinite(firstYear)) return [];
+        return Array.from({ length: yearsOfStudy }, (_, index) => firstYear + index);
+    }
+
+    function buildSemesters(startYear, yearsOfStudy, summerYears = []) {
+        const selectedSummerYears = new Set((summerYears || []).map(Number));
+        return getStudyYears(startYear, yearsOfStudy).flatMap(year => {
+            const shortYear = year.toString().slice(-2);
+            const semesters = [
+                { id: `sem-${shortYear}-1`, name: `${year} Sem 1`, year, semNum: 1, term: 'semester-1' },
+                { id: `sem-${shortYear}-2`, name: `${year} Sem 2`, year, semNum: 2, term: 'semester-2' }
+            ];
+            if (selectedSummerYears.has(year)) {
+                semesters.push({
+                    id: `sem-${shortYear}-summer`,
+                    name: `${year} Summer Semester`,
+                    year,
+                    semNum: 'summer',
+                    term: 'summer'
+                });
+            }
+            return semesters;
+        });
+    }
+
     function isSoftwareAiTransition(context) {
         return parseInt(context.rulesYear, 10) === 2026
             && context.majorId === 'SOFTWE2455'
@@ -70,7 +97,9 @@
 
     return {
         CATEGORIES,
+        buildSemesters,
         getAvailableStartYears,
+        getStudyYears,
         isSoftwareAiTransition,
         resolvePlanId,
         resolveCourseCategories
