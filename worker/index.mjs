@@ -3,6 +3,7 @@ import { ConsistentHashRing, DEFAULT_VIRTUAL_NODES } from './consistentHash.mjs'
 const DEFAULT_TTL_SECONDS = 60 * 60 * 24 * 180;
 const CODE_LENGTH = 8;
 const BASE62 = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const routerCache = new WeakMap();
 
 function jsonResponse(body, init = {}) {
     return new Response(JSON.stringify(body), {
@@ -24,7 +25,7 @@ function corsHeaders(headers = {}) {
 }
 
 function getAppOrigin(env) {
-    return String(env.APP_ORIGIN || 'https://uqtracker.vercel.app').replace(/\/$/, '');
+    return String(env.APP_ORIGIN || 'https://uq-tracker.vercel.app').replace(/\/$/, '');
 }
 
 function parseShardConfig(env) {
@@ -37,18 +38,39 @@ function parseShardConfig(env) {
             id: shard.id || `redis-${index}`,
             url: String(shard.url || '').replace(/\/$/, ''),
             token: shard.token
-        }));
+        })).map(validateShard);
     }
 
     if (env.REDIS_REST_URL && env.REDIS_REST_TOKEN) {
-        return [{
+        return [validateShard({
             id: 'redis-primary',
             url: String(env.REDIS_REST_URL).replace(/\/$/, ''),
             token: env.REDIS_REST_TOKEN
-        }];
+        })];
     }
 
     throw new Error('Configure REDIS_SHARDS_JSON or REDIS_REST_URL/REDIS_REST_TOKEN');
+}
+
+function validateShard(shard) {
+    if (!shard.url || !shard.token) {
+        throw new Error(`Redis shard ${shard.id} requires url and token`);
+    }
+    return shard;
+}
+
+function getRouter(env) {
+    if (env && typeof env === 'object' && routerCache.has(env)) {
+        return routerCache.get(env);
+    }
+
+    const shards = parseShardConfig(env);
+    const router = {
+        shards,
+        ring: new ConsistentHashRing(shards, { virtualNodes: DEFAULT_VIRTUAL_NODES })
+    };
+    if (env && typeof env === 'object') routerCache.set(env, router);
+    return router;
 }
 
 function validateTargetUrl(targetUrl, env) {
@@ -92,9 +114,7 @@ async function redisCommand(shard, command) {
 }
 
 function getShardForCode(code, env) {
-    const shards = parseShardConfig(env);
-    const ring = new ConsistentHashRing(shards, { virtualNodes: DEFAULT_VIRTUAL_NODES });
-    return ring.getNode(code);
+    return getRouter(env).ring.getNode(code);
 }
 
 function storageKey(code) {
@@ -102,8 +122,30 @@ function storageKey(code) {
 }
 
 async function getStoredUrl(code, env) {
-    const shard = getShardForCode(code, env);
-    return redisCommand(shard, ['GET', storageKey(code)]);
+    const router = getRouter(env);
+    const primaryShard = router.ring.getNode(code);
+    const key = storageKey(code);
+    const primaryValue = await redisCommand(primaryShard, ['GET', key]);
+    if (primaryValue) return primaryValue;
+
+    // A topology change can move a key's ring assignment before its Redis data
+    // is migrated. Search the remaining shards on a primary miss, then lazily
+    // copy the value to its current owner so later reads use the O(log N) path.
+    const fallbackResults = await Promise.allSettled(
+        router.shards
+            .filter(shard => shard.id !== primaryShard.id)
+            .map(async shard => ({
+                shard,
+                value: await redisCommand(shard, ['GET', key])
+            }))
+    );
+    const recovered = fallbackResults.find(result =>
+        result.status === 'fulfilled' && result.value.value
+    );
+    if (!recovered) return null;
+
+    await setStoredUrl(code, recovered.value.value, env);
+    return recovered.value.value;
 }
 
 async function setStoredUrl(code, targetUrl, env) {

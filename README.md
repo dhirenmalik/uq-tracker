@@ -36,4 +36,22 @@ The main logic is split between:
 - `prerequisiteGraph.js` for prerequisite validation
 - `app.js` for planner state and interaction
 
-The optional `worker/` service creates compact share links. Without it, sharing falls back to a full plan URL.
+## Short-link worker
+
+The optional Cloudflare Worker stores short links across Redis REST shards. A 150-virtual-node consistent-hash ring selects each shard with an O(log N) lookup; fallback reads lazily migrate the small set of keys that move after a shard change.
+
+Configure either one Redis instance with `REDIS_REST_URL` and `REDIS_REST_TOKEN`, or multiple instances with a `REDIS_SHARDS_JSON` secret:
+
+```json
+[{"id":"redis-a","url":"https://example.upstash.io","token":"..."}]
+```
+
+Authenticate Wrangler, add the secret, and deploy:
+
+```sh
+npx wrangler login
+npx wrangler secret put REDIS_SHARDS_JSON --config worker/wrangler.toml
+npm run deploy:worker
+```
+
+Set the deployed Worker origin in the `uqtracker-shortener-url` meta tag in `index.html`. If no worker is configured, sharing falls back to a full plan URL.

@@ -3,5 +3,5 @@ main = "index.mjs"
 compatibility_date = "2024-11-01"
 
 [vars]
-APP_ORIGIN = "https://uqtracker.vercel.app"
+APP_ORIGIN = "https://uq-tracker.vercel.app"
 LINK_TTL_SECONDS = "15552000"

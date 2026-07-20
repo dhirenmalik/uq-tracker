@@ -1,11 +1,47 @@
 export const DEFAULT_VIRTUAL_NODES = 150;
 
-function fnv1a32(input) {
-    let hash = 0x811c9dc5;
-    for (let i = 0; i < input.length; i++) {
-        hash ^= input.charCodeAt(i);
-        hash = Math.imul(hash, 0x01000193);
+function murmur3_32(input, seed = 0) {
+    const text = String(input);
+    let hash = seed >>> 0;
+    let index = 0;
+
+    while (index + 4 <= text.length) {
+        let chunk = text.charCodeAt(index)
+            | (text.charCodeAt(index + 1) << 8)
+            | (text.charCodeAt(index + 2) << 16)
+            | (text.charCodeAt(index + 3) << 24);
+        chunk = Math.imul(chunk, 0xcc9e2d51);
+        chunk = (chunk << 15) | (chunk >>> 17);
+        chunk = Math.imul(chunk, 0x1b873593);
+
+        hash ^= chunk;
+        hash = (hash << 13) | (hash >>> 19);
+        hash = (Math.imul(hash, 5) + 0xe6546b64) | 0;
+        index += 4;
     }
+
+    let tail = 0;
+    switch (text.length & 3) {
+        case 3:
+            tail ^= text.charCodeAt(index + 2) << 16;
+        // fall through
+        case 2:
+            tail ^= text.charCodeAt(index + 1) << 8;
+        // fall through
+        case 1:
+            tail ^= text.charCodeAt(index);
+            tail = Math.imul(tail, 0xcc9e2d51);
+            tail = (tail << 15) | (tail >>> 17);
+            tail = Math.imul(tail, 0x1b873593);
+            hash ^= tail;
+    }
+
+    hash ^= text.length;
+    hash ^= hash >>> 16;
+    hash = Math.imul(hash, 0x85ebca6b);
+    hash ^= hash >>> 13;
+    hash = Math.imul(hash, 0xc2b2ae35);
+    hash ^= hash >>> 16;
     return hash >>> 0;
 }
 
@@ -24,7 +60,7 @@ export class ConsistentHashRing {
         this.nodes.forEach(node => {
             for (let i = 0; i < this.virtualNodes; i++) {
                 this.ring.push({
-                    point: fnv1a32(`${node.id}:${i}`),
+                    point: murmur3_32(`${node.id}:${i}`),
                     node
                 });
             }
@@ -45,7 +81,7 @@ export class ConsistentHashRing {
             throw new Error('Cannot route keys without at least one hash ring node');
         }
 
-        const point = fnv1a32(String(key));
+        const point = murmur3_32(String(key));
         let low = 0;
         let high = this.ring.length - 1;
 

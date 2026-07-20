@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ConsistentHashRing } from './consistentHash.mjs';
+import { ConsistentHashRing, DEFAULT_VIRTUAL_NODES } from './consistentHash.mjs';
 
 function assignments(ring, keys) {
     const map = new Map();
@@ -22,8 +22,9 @@ function remapRatio(before, after) {
 test('looks up nodes with binary-searchable ring points', () => {
     const ring = new ConsistentHashRing(['redis-a', 'redis-b', 'redis-c']);
 
+    assert.equal(DEFAULT_VIRTUAL_NODES, 150);
     assert.equal(ring.size, 3);
-    assert.equal(ring.ring.length, 450);
+    assert.equal(ring.ring.length, 3 * DEFAULT_VIRTUAL_NODES);
     assert.deepEqual(
         ring.ring.map(item => item.point),
         ring.ring.map(item => item.point).sort((left, right) => left - right)
@@ -31,9 +32,28 @@ test('looks up nodes with binary-searchable ring points', () => {
     assert.match(ring.getNode('plan-url-1').id, /^redis-[abc]$/);
 });
 
+test('uses logarithmic ring reads for lookup', () => {
+    const ring = new ConsistentHashRing(
+        Array.from({ length: 1000 }, (_, index) => `redis-${index}`)
+    );
+    const points = ring.ring;
+    let pointReads = 0;
+    ring.ring = new Proxy(points, {
+        get(target, property, receiver) {
+            if (/^\d+$/.test(String(property))) pointReads++;
+            return Reflect.get(target, property, receiver);
+        }
+    });
+
+    ring.getNode('https://uq-tracker.vercel.app/#complexity-check');
+
+    const binarySearchBound = Math.ceil(Math.log2(points.length)) + 2;
+    assert.ok(pointReads <= binarySearchBound, `${pointReads} reads exceeded ${binarySearchBound}`);
+});
+
 test('limits key remapping across node changes for 10,000 synthetic URLs', () => {
     const keys = Array.from({ length: 10000 }, (_, index) => {
-        return `https://uqtracker.vercel.app/#synthetic-plan-${index}`;
+        return `https://uq-tracker.vercel.app/#synthetic-plan-${index}`;
     });
 
     const fourShardRing = new ConsistentHashRing(['redis-a', 'redis-b', 'redis-c', 'redis-d']);
@@ -44,6 +64,11 @@ test('limits key remapping across node changes for 10,000 synthetic URLs', () =>
     const added = assignments(fiveShardRing, keys);
     const removed = assignments(threeShardRing, keys);
 
-    assert.ok(remapRatio(base, added) < 0.35);
-    assert.ok(remapRatio(base, removed) < 0.35);
+    const addedRatio = remapRatio(base, added);
+    const removedRatio = remapRatio(base, removed);
+
+    // Adding one node to four should move about 20% of keys; removing one of
+    // four should move about 25%. Virtual nodes keep both close to expectation.
+    assert.ok(addedRatio > 0.14 && addedRatio < 0.27, `unexpected add-node remap ratio: ${addedRatio}`);
+    assert.ok(removedRatio > 0.18 && removedRatio < 0.32, `unexpected remove-node remap ratio: ${removedRatio}`);
 });
